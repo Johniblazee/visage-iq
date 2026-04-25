@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+secrets/
+docs/
+data/photos/*
+!data/photos/.gitkeep
+.insightface/
+*.onnx
+.streamlit/
+.DS_Store
