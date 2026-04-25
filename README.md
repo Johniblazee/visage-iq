@@ -1,92 +1,128 @@
-# Face Match (Google Drive backed)
+# VisageIQ
 
-Internal face-matching service. Photos live in a Google Drive folder; the app syncs them into Postgres + pgvector, embeds with InsightFace, and serves top-3 matches with confidence scores via FastAPI + a Streamlit UI. Fully containerized.
+> Face-matching service backed by your Google Drive folder.
 
-Stack: InsightFace `buffalo_l` · FastAPI · Streamlit · PostgreSQL + pgvector (HNSW) · Redis (cache + RQ queue + rate-limit) · APScheduler · Docker Compose.
+VisageIQ takes a portrait, passport, or ID photo on the front-end and returns the top-3 most similar faces from a Google Drive folder you control, each with a confidence score. Photos in Drive are synchronized into a vector database (Postgres + pgvector) once and matched against in milliseconds thereafter — even at hundreds of thousands of records.
 
-## Decision-support, not identity decision
-
-No open-source face recognition model is demographically perfect — NIST FRVT studies consistently find disparate error rates across racial groups for every vendor tested. This app always returns the top-K candidates with similarity scores and a MATCH / REVIEW / NO_MATCH band. The final identity decision is made by a human reviewer.
+Built for internal review tooling: every result is decision-*support* for a human reviewer, never an automated identity decision. See [Responsible use](#responsible-use) below.
 
 ---
 
-## 1. Google Drive service account setup
+## Features
 
-Step-by-step. Do once.
+- **Drive-native enrollment.** Drop photos into a shared Google Drive folder; a service account reads them automatically. No bespoke admin UI to maintain a face database.
+- **State-of-the-art recognition.** Powered by [InsightFace](https://github.com/deepinsight/insightface) `buffalo_l` (ArcFace + RetinaFace, 512-dim embeddings).
+- **Sub-second top-K queries** at hundreds of thousands of rows via pgvector's HNSW index.
+- **Background sync** with RQ workers + APScheduler — folder changes propagate every 30 minutes automatically, and a manual *Sync now* button is one click away.
+- **Streamlit UI** for uploads, candidate cards with confidence bars, and verdict bands (`MATCH` / `REVIEW` / `NO_MATCH`).
+- **Rate limiting** per IP via slowapi + Redis.
+- **One-command local stack** with Docker Compose and a self-documenting `Makefile`.
+- **One-click cloud deploy** with a Render Blueprint (`render.yaml`).
 
-1. **Create / pick a Google Cloud project** at https://console.cloud.google.com/projectcreate. Note the Project ID.
-2. **Enable the Drive API** at https://console.cloud.google.com/apis/library/drive.googleapis.com → **Enable** for your project.
-3. **Create a service account** at https://console.cloud.google.com/iam-admin/serviceaccounts → **Create service account** → name it `face-match-sa` → **Done** (skip optional role grants — Drive sharing handles access).
-4. **Generate a JSON key**: open the new service account → **Keys** tab → **Add Key → Create new key → JSON → Create**. A `*.json` file downloads.
-5. **Save the key file to** `secrets/gdrive-sa.json` in this repo (gitignored). The compose stack mounts it as a Docker secret at `/run/secrets/gdrive-sa`.
-6. **Copy the service account email** (looks like `face-match-sa@<project-id>.iam.gserviceaccount.com`) shown on the service account page.
-7. **Share the Drive folder** holding your match images with that email. Open Drive → right-click the folder → **Share** → paste the SA email → role **Viewer** → uncheck "Notify people" → **Share**.
-8. **Capture the folder ID**. From the folder URL `https://drive.google.com/drive/folders/<FOLDER_ID>`, copy the trailing token.
-9. **Edit `.env`** (copy from `.env.example`):
-   ```
-   GDRIVE_SA_JSON_PATH=/run/secrets/gdrive-sa
-   GDRIVE_FOLDER_ID=<paste folder id>
-   GDRIVE_RECURSIVE=true
-   ```
+## Stack
 
-That is the entire credential setup. Subfolders inside the shared folder are walked automatically when `GDRIVE_RECURSIVE=true`.
+InsightFace `buffalo_l` · FastAPI · Streamlit · PostgreSQL 16 + pgvector (HNSW) · Redis 7 (cache + RQ + rate-limit) · APScheduler · Docker Compose · Render
 
----
+## Architecture
 
-## 2. Run with Docker Compose
-
-```bash
-cp .env.example .env       # edit GDRIVE_FOLDER_ID
-docker compose up --build  # first build downloads InsightFace models on first sync
+```
+┌────────────────┐
+│  Google Drive  │  ◀── photos live here
+└───────┬────────┘
+        │ list / download (service-account auth)
+        ▼
+┌────────────────┐         enqueue          ┌──────────────┐
+│  FastAPI api   │ ───────────────────────▶ │  RQ queue    │
+│  /match        │                          │  (Redis)     │
+│  /sync         │ ◀─── results             └──────┬───────┘
+│  /image/{id}   │                                 │ pulls jobs
+└───────┬────────┘                                 ▼
+        │ upserts                          ┌──────────────┐
+        │ embeddings                       │  RQ worker   │
+        ▼                                  └──────┬───────┘
+┌──────────────────────────────────┐              │ embeds + upserts
+│  Postgres + pgvector (HNSW)      │ ◀────────────┘
+│  table: persons (vector(512))    │
+└──────────────────────────────────┘
+        ▲
+        │ similarity search
+        │
+┌────────────────┐
+│  Streamlit UI  │  ◀── browser
+└────────────────┘
 ```
 
-What comes up:
-
-| Service | Port | What it does |
-|---|---|---|
-| `db` | 5432 | Postgres 16 + pgvector. `scripts/init_db.sql` runs on first boot. |
-| `redis` | 6379 | Image cache, RQ queue, slowapi rate-limit storage |
-| `api` | 8000 | FastAPI: `/match`, `/sync`, `/sync/{job_id}`, `/image/{file_id}`, `/health` |
-| `worker` | – | `rq worker` consuming the `sync` queue |
-| `ui` | 8501 | Streamlit. Open http://localhost:8501 |
-
-The InsightFace model weights persist in the `insightface-models` named volume so they only download once (~300 MB).
+The api never reads Drive at match time. Drive photos are pulled in by `/sync` (manual button or 30-minute scheduler), embedded, and stored in Postgres. `/match` runs a cosine-similarity query against the stored embeddings.
 
 ---
 
-## 3. First-time data load
+## Quickstart
 
-Two ways:
+### Prerequisites
 
-**A. From the UI:** open http://localhost:8501, click **Sync now** in the sidebar. The status polls until done.
+- Docker Desktop
+- GNU `make` (Windows: use Git Bash, or `choco install make`)
+- A Google Cloud service-account JSON with read access to a Drive folder of photos *(see [Drive credentials](#drive-credentials))*
 
-**B. Via the API:**
-
-```bash
-curl -X POST http://localhost:8000/sync
-# → {"job_id":"...","status":"queued"}
-curl http://localhost:8000/sync/<job_id>
-```
-
-**C. Foreground from a CLI** (skips Redis/worker — useful if a worker is unreachable):
+### Run it
 
 ```bash
-docker compose run --rm api python scripts/enroll.py
+make env       # creates .env from .env.example
+make secrets   # creates secrets/ — drop your service-account JSON in as gdrive-sa.json
+# Edit .env and set GDRIVE_FOLDER_ID
+
+make up        # docker compose up --build -d (~5–10 min on first build)
+make health    # smoke-test the api
 ```
 
-The sync is idempotent: it lists every image in the Drive folder, embeds new files, re-embeds files whose Drive `modifiedTime` advanced, and (if `prune=true`) deletes rows for files removed from Drive.
+Open the UI at http://localhost:8501. Click **Sync now** in the sidebar to populate the database. Upload a photo to see matches.
+
+Run `make help` for the full list of shortcuts.
 
 ---
 
-## 4. Match flow
+## Drive credentials
 
-Upload a photo via the Streamlit UI or:
+VisageIQ reads your photo library through a Google Cloud service account. One-time setup:
+
+1. **Create / pick a Google Cloud project** at https://console.cloud.google.com/projectcreate.
+2. **Enable the Drive API**: https://console.cloud.google.com/apis/library/drive.googleapis.com.
+3. **Create a service account** at https://console.cloud.google.com/iam-admin/serviceaccounts. Name it (e.g. `visageiq-sa`). Skip role grants — Drive sharing handles access.
+4. **Generate a JSON key**: Service account → **Keys** → **Add Key → Create new key → JSON**.
+5. **Save the key** as `secrets/gdrive-sa.json` in this repo (gitignored).
+6. **Share your Drive folder** with the service account email (`<sa-name>@<project>.iam.gserviceaccount.com`), role **Viewer**.
+7. **Copy the folder ID** from the Drive URL `https://drive.google.com/drive/folders/<FOLDER_ID>`.
+8. **Set `GDRIVE_FOLDER_ID`** in `.env`.
+
+For Render (or any platform without Docker secret-file support), paste the JSON contents into the `GDRIVE_SA_JSON` env var instead of using the file path. VisageIQ prefers the env var when both are set.
+
+---
+
+## Usage
+
+### From the UI
+
+1. Open http://localhost:8501.
+2. Sidebar → **Sync now** to import the Drive folder (one-time, then every 30 min automatically).
+3. Upload a portrait. Top-3 candidates render with thumbnails, confidence percentage, and verdict badge.
+
+### From the API
 
 ```bash
+# Match a photo
 curl -F "file=@portrait.jpg" "http://localhost:8000/match?top_k=3"
+
+# Trigger a sync (returns a job id)
+curl -X POST http://localhost:8000/sync
+
+# Poll a sync job
+curl http://localhost:8000/sync/<job_id>
+
+# Health
+curl http://localhost:8000/health
 ```
 
-Response:
+API response (`/match`):
 
 ```json
 {
@@ -105,88 +141,161 @@ Response:
 }
 ```
 
-Thumbnails in the UI render via `GET /image/{file_id}` — the API streams the file from Drive (cached in Redis for 24h by default).
+OpenAPI docs are auto-generated at http://localhost:8000/docs.
 
 ---
 
-## 5. Configuration (`.env`)
+## Configuration
+
+All configuration lives in `.env` (local) or service environment variables (Render). Defaults are sane; only `GDRIVE_FOLDER_ID` and credentials are required.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://postgres:pg@db:5432/postgres` | Postgres DSN (compose-internal hostname) |
-| `REDIS_URL` | `redis://redis:6379/0` | Redis URL for queue + cache + rate-limit |
-| `GDRIVE_SA_JSON_PATH` | `/run/secrets/gdrive-sa` | Path to mounted SA key inside the container |
+| `DATABASE_URL` | `postgresql://postgres:pg@db:5432/postgres` | Postgres DSN |
+| `REDIS_URL` | `redis://redis:6379/0` | Redis URL (cache + RQ + rate-limit) |
 | `GDRIVE_FOLDER_ID` | *(required)* | Drive folder shared with the service account |
-| `GDRIVE_RECURSIVE` | `true` | Walk subfolders |
+| `GDRIVE_SA_JSON_PATH` | `/run/secrets/gdrive-sa` | Path to mounted SA key (Docker secret) |
+| `GDRIVE_SA_JSON` | *(empty)* | Raw JSON contents of the SA key (alternative to the file path) |
+| `GDRIVE_RECURSIVE` | `true` | Walk subfolders during sync |
 | `INSIGHTFACE_MODEL` | `buffalo_l` | Try `antelopev2` for a fairness A/B |
-| `MATCH_THRESHOLD` | `0.40` | Cosine similarity floor for MATCH |
-| `REVIEW_THRESHOLD` | `0.30` | Floor for REVIEW (below → NO_MATCH) |
-| `TOP_K` | `3` | Default candidates returned |
-| `SYNC_INTERVAL_MIN` | `30` | Scheduler period in the API container; set `0` to disable |
+| `MATCH_THRESHOLD` | `0.40` | Cosine similarity floor for `MATCH` verdict |
+| `REVIEW_THRESHOLD` | `0.30` | Floor for `REVIEW` (below → `NO_MATCH`) |
+| `TOP_K` | `3` | Default candidates returned by `/match` |
+| `SYNC_INTERVAL_MIN` | `30` | Scheduler period in the api container; `0` to disable |
 | `IMAGE_CACHE_TTL_SECONDS` | `86400` | Redis TTL for cached Drive image bytes |
 | `MATCH_RATE_LIMIT` | `30/minute` | Per-IP slowapi limit on `/match` |
 | `SYNC_RATE_LIMIT` | `5/minute` | Per-IP slowapi limit on `/sync` |
-| `ONNX_PROVIDERS` | `CPUExecutionProvider` | Comma-list. GPU: `CUDAExecutionProvider,CPUExecutionProvider` (also swap to `onnxruntime-gpu`) |
-| `API_BASE_URL` | `http://api:8000` | UI uses this to call the API |
+| `ONNX_PROVIDERS` | `CPUExecutionProvider` | Comma-list. GPU: `CUDAExecutionProvider,CPUExecutionProvider` |
+| `API_BASE_URL` | `http://api:8000` | URL the UI uses to call the api |
 
 ---
 
-## 6. Project layout
+## Deployment
+
+A [`render.yaml`](render.yaml) Blueprint is included. It provisions five Render resources: managed Postgres (with pgvector), managed Key Value (Redis), api web service, worker service, and ui web service.
+
+1. **Push the repo to GitHub.**
+2. **Render dashboard → New + → Blueprint** → select the repo. Render reads `render.yaml`.
+3. **Fill secrets when prompted:**
+   - `GDRIVE_SA_JSON` — paste the full contents of `secrets/gdrive-sa.json` on **api** and **worker** services.
+   - `GDRIVE_FOLDER_ID` — the Drive folder ID on **api** and **worker** services.
+4. **First build takes ~5–10 minutes** because the Dockerfile bakes the InsightFace `buffalo_l` weights (~300 MB) so cold starts skip the download.
+5. **After the api deploys**, open the **ui** service → Environment → set `API_BASE_URL` to the api's public URL (e.g. `https://visageiq-api.onrender.com`). Save; the UI auto-redeploys.
+
+Pushes to the tracked branch auto-deploy all five resources. Schema migrations run idempotently on api startup, so additive changes (new columns, new indexes) require no manual step.
+
+**Cold starts:** Render starter plans suspend after 15 minutes of inactivity. The first request after suspension takes 10–20 seconds while the container wakes. Bump api + worker to **Standard** plan in `render.yaml` (or use a free uptime monitor pinging `/health`) for always-on behaviour.
+
+---
+
+## Development
+
+```bash
+make install     # python -m venv .venv && pip install -r requirements.txt
+make api         # FastAPI on :8000 with autoreload
+make worker      # RQ worker
+make ui          # Streamlit on :8501
+make sync        # Foreground sync (no worker required)
+make check       # Byte-compile every Python module
+make psql        # psql shell into the compose db
+make redis-cli   # redis-cli into the compose redis
+make logs        # Tail all compose service logs
+make down        # Stop everything
+```
+
+Run `make help` for the full list.
+
+### Native (no Docker for the app)
+
+You still want Docker for Postgres + Redis (much easier than installing them natively). The api / worker / UI run as plain Python processes:
+
+```bash
+# 1. Postgres + Redis
+docker run -d --name fm-pg -p 5432:5432 -e POSTGRES_PASSWORD=pg pgvector/pgvector:pg16
+docker run -d --name fm-redis -p 6379:6379 redis:7-alpine
+
+# 2. Python deps
+make install
+source .venv/bin/activate    # or .venv/Scripts/activate on Windows
+
+# 3. Point .env at localhost
+# DATABASE_URL=postgresql://postgres:pg@localhost:5432/postgres
+# REDIS_URL=redis://localhost:6379/0
+# GDRIVE_SA_JSON_PATH=./secrets/gdrive-sa.json
+
+# 4. Schema
+make init-db
+
+# 5. Three terminals
+make api      # terminal 1
+make worker   # terminal 2
+make ui       # terminal 3
+```
+
+For the initial bulk load without a worker, run `make sync` in a fourth terminal — it executes the same algorithm synchronously and surfaces tracebacks directly.
+
+### Project structure
 
 ```
-backend/         FastAPI service, InsightFace, Drive client, Redis cache, sync logic, RQ
-frontend/        Streamlit app (sync button, match flow, image proxy thumbnails)
+backend/         FastAPI service, InsightFace wrapper, Drive client, Redis cache, sync logic, RQ
+frontend/        Streamlit app
 scripts/         init_db.sql, enroll.py (foreground sync CLI)
-secrets/         gdrive-sa.json (gitignored; mounted as Docker secret)
+secrets/         gdrive-sa.json (gitignored)
 Dockerfile       Shared image for api + worker
 Dockerfile.ui    Slim Streamlit image
 docker-compose.yml
+render.yaml
+Makefile
+requirements.txt
 ```
 
----
+### API endpoints
 
-## 7. Deploy to Render
-
-The repo includes a `render.yaml` blueprint that provisions five resources:
-
-| Resource | Type | Purpose |
+| Method | Path | Purpose |
 |---|---|---|
-| `face-match-db` | Postgres (managed) | pgvector enabled at first DB connection |
-| `face-match-cache` | Key Value (managed Redis) | Image cache, RQ queue, rate-limit storage |
-| `face-match-api` | Docker web service | FastAPI on `$PORT`, runs APScheduler in-process |
-| `face-match-worker` | Docker worker service | `rq worker` consuming the `sync` queue |
-| `face-match-ui` | Docker web service | Streamlit on `$PORT`, public URL is what users hit |
-
-### One-time setup
-
-1. **Push this repo to GitHub.**
-2. In the Render dashboard click **New → Blueprint**, point it at the repo. Render reads `render.yaml`.
-3. **Sync `sync: false` env vars** when Render prompts:
-   - `GDRIVE_SA_JSON` — paste the **entire contents** of `secrets/gdrive-sa.json` (raw JSON, single line or multi-line both fine). Render encrypts it. Set on **api** and **worker** services.
-   - `GDRIVE_FOLDER_ID` — the Drive folder ID from Step 1.7.
-   - `API_BASE_URL` (UI service only) — fill in **after** the api service deploys, with its public URL: `https://face-match-api.onrender.com` (or whatever Render assigns).
-4. **First deploy** kicks off automatically. The api/worker images take ~5–10 min on first build because the Dockerfile bakes the InsightFace `buffalo_l` weights (~300 MB) so cold starts skip the download.
-5. **Run a sync**: open the UI URL (`https://face-match-ui.onrender.com`), click **Sync now**. First sync time ∝ folder size (CPU embedding ~300–500 ms per face).
-
-### Render-specific notes
-
-- **pgvector** is auto-enabled by `bootstrap_schema()` running at API startup (`CREATE EXTENSION IF NOT EXISTS vector` on every connection from the pool). No manual `psql` step required.
-- **Service-account credential** is supplied as a single env var (`GDRIVE_SA_JSON`) instead of a file. The code prefers the env var when set; locally, the Docker secret file at `/run/secrets/gdrive-sa` is still used by `docker compose`.
-- **Cold-start latency**: starter plans suspend after 15 min of inactivity. The first request after suspension takes ~10–20s while the container boots. Bump api + worker to **standard** ($25/mo each) if always-on matters.
-- **Cost shape**: db basic-256mb (~$6), keyvalue starter (~$10), api standard, worker standard, ui starter. Drop worker plan to starter if your folder is small (<500 images) and sync rarely runs.
-- **Image vulnerability hint**: Docker linters may flag `python:3.12-slim-bookworm` for transitive CVEs. The Dockerfiles do `apt-get upgrade -y` and `pip install --upgrade pip setuptools wheel` to patch what we control. Remaining findings live in upstream layers and clear when Docker Hub republishes the tag — not service-impacting.
-- **TLS / domains**: Render provisions HTTPS on `*.onrender.com` automatically. Add a custom domain via the dashboard if needed.
-
-### Updating the deployment
-
-Push to the connected branch; Render auto-deploys both api + worker + ui. The `bootstrap_schema()` call is idempotent so no manual migration step is needed for new schema additions (as long as they remain `IF NOT EXISTS` / additive).
+| `GET` | `/health` | DB + Redis liveness, model name |
+| `POST` | `/match` | Upload an image, get top-K candidates |
+| `POST` | `/sync` | Enqueue a Drive→DB sync job |
+| `GET` | `/sync/{job_id}` | Poll a sync job's status |
+| `GET` | `/image/{file_id}` | Drive-image proxy (Redis-cached) for thumbnails |
+| `GET` | `/docs` | Auto-generated OpenAPI |
 
 ---
 
-## 8. Race-fairness notes
+## Troubleshooting
 
-- Use `buffalo_l` (Glint360K training, broader demographic coverage). Swap to `antelopev2` for an A/B if you have a labeled validation set.
-- Tune `MATCH_THRESHOLD` on **your** data. Compute per-subgroup ROC and equalize false-reject rates rather than picking a single global threshold.
-- Always surface top-K with scores. Never let the API drive an automated identity action.
-- NIST FRVT remains the canonical reference: https://pages.nist.gov/frvt/html/frvt_demographics.html.
-# visage-iq
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `/match` returns zero candidates | `persons` table is empty — sync hasn't run | Click **Sync now** in the UI, or `curl -X POST .../sync`, or `make compose-sync` |
+| `422 No face detected` | Detector found no face | Check the image — too small, occluded, or non-photographic |
+| `DriveError: GDRIVE_FOLDER_ID not set` | Env var didn't load | Confirm `.env` has the line; restart the service |
+| `DriveError: ... 403` | Folder not shared with the SA | Share the Drive folder with the SA email, role **Viewer** |
+| `extension "vector" is not available` | Wrong Postgres image | Use `pgvector/pgvector:pg16`, never plain `postgres:16` |
+| Sync jobs stuck `queued` | No worker is consuming the queue | Confirm worker container/service is running (`make ps` / Render dashboard) |
+| `429 rate limit exceeded` | slowapi cap hit | Bump `MATCH_RATE_LIMIT` / `SYNC_RATE_LIMIT` in `.env` |
+| Render cold start (~15s) | Starter plan suspended after idle | Bump to Standard plan, or accept it |
+| Thumbnail returns 502 | api couldn't fetch from Drive | Check api logs; usually a permission revoke or deleted file |
+
+---
+
+## Responsible use
+
+Every face recognition system, including this one, has measurably different error rates across demographic groups. NIST FRVT studies have documented this for every commercial and open-source vendor evaluated. VisageIQ:
+
+- **Always returns top-K candidates with explicit similarity scores** — never a binary identity decision.
+- **Surfaces a verdict band** (`MATCH` / `REVIEW` / `NO_MATCH`) so reviewers attend more carefully to borderline cases.
+- **Should not be wired into automated actions** (account creation, access grants, alerts) without a human in the loop.
+
+If you have labeled validation data, plot per-subgroup ROC curves and tune `MATCH_THRESHOLD` to equalize false-reject rates across groups, rather than picking a single global threshold. Background reading: [NIST FRVT Demographics](https://pages.nist.gov/frvt/html/frvt_demographics.html).
+
+---
+
+## License
+
+Specify your license here (e.g. MIT, Apache 2.0). Until then, all rights reserved by the repository owner.
+
+## Acknowledgments
+
+- [InsightFace](https://github.com/deepinsight/insightface) — face detection and embedding
+- [pgvector](https://github.com/pgvector/pgvector) — vector similarity search in Postgres
+- [FastAPI](https://fastapi.tiangolo.com/), [Streamlit](https://streamlit.io/), [RQ](https://python-rq.org/), [APScheduler](https://apscheduler.readthedocs.io/), [slowapi](https://slowapi.readthedocs.io/)
