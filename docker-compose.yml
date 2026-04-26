@@ -35,8 +35,6 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
-    secrets:
-      - gdrive-sa
     volumes:
       - insightface-models:/root/.insightface
     depends_on:
@@ -54,8 +52,6 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
-    secrets:
-      - gdrive-sa
     volumes:
       - insightface-models:/root/.insightface
     depends_on:
@@ -81,7 +77,3 @@ volumes:
   pgdata:
   redisdata:
   insightface-models:
-
-secrets:
-  gdrive-sa:
-    file: ./secrets/gdrive-sa.json

@@ -6,11 +6,12 @@
 
 SHELL := /bin/bash
 
-# Load .env if it exists so DATABASE_URL / REDIS_URL are available to local processes.
-ifneq (,$(wildcard .env))
-include .env
-export
-endif
+# .env is NOT included by Make — multi-line / quoted values (like GDRIVE_SA_JSON)
+# break Make's parser. Instead:
+#   * docker compose reads .env via `env_file: .env`
+#   * the api / worker / scripts read .env via pydantic-settings
+#   * shell-only targets (init-db, etc.) source .env at command time via DOTENV
+DOTENV := set -a; [ -f .env ] && . ./.env; set +a;
 
 DATABASE_URL ?= postgresql://postgres:pg@localhost:5432/postgres
 REDIS_URL    ?= redis://localhost:6379/0
@@ -22,7 +23,7 @@ PY    = $(VENV)/bin/python
 PIP   = $(VENV)/bin/pip
 
 .DEFAULT_GOAL := help
-.PHONY: help install env secrets api worker ui sync init-db \
+.PHONY: help install env api worker ui sync init-db \
         up down logs logs-api logs-worker logs-ui ps rebuild \
         compose-sync compose-shell psql redis-cli health check clean nuke
 
@@ -41,14 +42,13 @@ install:  ## Create virtualenv + install Python deps
 	@echo "Done. Activate with: source $(VENV)/Scripts/activate (Windows) or source $(VENV)/bin/activate (macOS/Linux)"
 
 env:  ## Copy .env.example to .env if missing
-	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example — edit it before running"; else echo ".env already exists"; fi
-
-secrets:  ## Print instructions for placing the Google service-account JSON
-	@echo "1) Generate the service-account JSON in Google Cloud Console (see README §1)."
-	@echo "2) Save it as: secrets/gdrive-sa.json"
-	@echo "3) The path is mounted as a Docker secret at /run/secrets/gdrive-sa inside containers."
-	@mkdir -p secrets
-	@echo "secrets/ directory ready."
+	@if [ ! -f .env ]; then \
+		cp .env.example .env; \
+		echo "Created .env from .env.example."; \
+		echo "Edit it and set:"; \
+		echo "  GDRIVE_SA_JSON   — paste the full contents of your service-account JSON"; \
+		echo "  GDRIVE_FOLDER_ID — the Drive folder id"; \
+	else echo ".env already exists"; fi
 
 # --- Local processes (no Docker) -------------------------------------------
 
@@ -56,7 +56,7 @@ api:  ## Run the FastAPI server with autoreload (port 8000)
 	uvicorn backend.main:app --reload --host 0.0.0.0 --port $(PORT_API)
 
 worker:  ## Run the RQ worker for the sync queue
-	rq worker --url $(REDIS_URL) sync
+	$(DOTENV) rq worker --url $${REDIS_URL:-$(REDIS_URL)} sync
 
 ui:  ## Run the Streamlit UI (port 8501)
 	API_BASE_URL=$${API_BASE_URL:-http://localhost:$(PORT_API)} \
@@ -67,8 +67,8 @@ ui:  ## Run the Streamlit UI (port 8501)
 sync:  ## Run a foreground Drive→DB sync (no worker required)
 	python scripts/enroll.py
 
-init-db:  ## Apply scripts/init_db.sql against $$DATABASE_URL
-	psql "$(DATABASE_URL)" -f scripts/init_db.sql
+init-db:  ## Apply scripts/init_db.sql against $$DATABASE_URL (sources .env)
+	$(DOTENV) psql "$${DATABASE_URL:-$(DATABASE_URL)}" -f scripts/init_db.sql
 
 # --- Docker Compose --------------------------------------------------------
 

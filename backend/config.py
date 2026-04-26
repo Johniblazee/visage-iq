@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:pg@db:5432/postgres"
     redis_url: str = "redis://redis:6379/0"
 
-    gdrive_sa_json_path: str = "/run/secrets/gdrive-sa"
     gdrive_sa_json: str = ""
     gdrive_folder_id: str = ""
     gdrive_recursive: bool = True
@@ -15,6 +14,7 @@ class Settings(BaseSettings):
     insightface_model: str = "buffalo_l"
     det_size: int = 640
     onnx_providers: str = "CPUExecutionProvider"
+    rotation_early_exit_score: float = 0.85
 
     match_threshold: float = 0.40
     review_threshold: float = 0.30

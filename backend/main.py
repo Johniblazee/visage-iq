@@ -8,7 +8,13 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from backend.cache import get_image, get_redis, set_image
+from backend.cache import (
+    get_drive_total,
+    get_image,
+    get_last_sync_finished_at,
+    get_redis,
+    set_image,
+)
 from backend.config import settings
 from backend.db import bootstrap_schema, pool
 from backend.embedding import (
@@ -20,8 +26,11 @@ from backend.embedding import (
 )
 from backend.gdrive import DriveError, download_bytes, get_metadata
 from backend.queue import enqueue_sync, fetch_job
+from backend import analytics
 from backend.schemas import (
+    AnalyticsSummary,
     Candidate,
+    FileStatusPage,
     HealthResponse,
     MatchResponse,
     SyncEnqueueResponse,
@@ -80,6 +89,17 @@ def _verdict(similarity: float) -> Verdict:
     if similarity >= settings.review_threshold:
         return "REVIEW"
     return "NO_MATCH"
+
+
+def _enrolled_count() -> int:
+    try:
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM persons")
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+    except Exception:
+        logger.exception("enrolled count query failed")
+        return 0
 
 
 def _search(result: EmbeddingResult, top_k: int) -> list[Candidate]:
@@ -143,6 +163,9 @@ def health() -> HealthResponse:
         drive=drive_status,
         model=settings.insightface_model,
         providers=settings.providers_list,
+        enrolled_count=_enrolled_count(),
+        drive_total=get_drive_total(),
+        last_sync_finished_at=get_last_sync_finished_at(),
     )
 
 
@@ -169,6 +192,8 @@ async def match(
         query_face_bbox=result.bbox,
         query_face_count=result.face_count,
         query_det_score=result.det_score,
+        query_rotation=result.rotation,
+        enrolled_count=_enrolled_count(),
         candidates=candidates,
     )
 
@@ -185,12 +210,34 @@ def sync_status(job_id: str) -> SyncJobStatus:
     job = fetch_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        job.refresh()
+        progress = job.meta.get("progress") if job.meta else None
+    except Exception:
+        progress = None
     return SyncJobStatus(
         job_id=job.id,
         status=job.get_status(refresh=True),
+        progress=progress,
         result=job.result if job.is_finished else None,
         error=str(job.exc_info) if job.is_failed else None,
     )
+
+
+@app.get("/analytics/summary", response_model=AnalyticsSummary)
+def analytics_summary() -> AnalyticsSummary:
+    return AnalyticsSummary(**analytics.summary())
+
+
+@app.get("/analytics/files", response_model=FileStatusPage)
+def analytics_files(
+    outcome: str | None = Query(default=None),
+    ext: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> FileStatusPage:
+    return FileStatusPage(**analytics.files_page(outcome=outcome, ext=ext, q=q, limit=limit, offset=offset))
 
 
 @app.get("/image/{file_id}")

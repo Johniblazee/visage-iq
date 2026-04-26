@@ -1,11 +1,18 @@
+import io
 import logging
 from dataclasses import dataclass
 
 import cv2
 import numpy as np
+import pillow_heif
 from insightface.app import FaceAnalysis
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from backend.config import settings
+
+# Register HEIF/HEIC support so Pillow's Image.open transparently handles them
+# (iPhones default to HEIC; without this they fail to decode).
+pillow_heif.register_heif_opener()
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +31,18 @@ class EmbeddingResult:
     bbox: list[int]
     det_score: float
     face_count: int
+    rotation: int  # 0 / 90 / 180 / 270 — degrees applied to find this face
 
 
 _app: FaceAnalysis | None = None
+
+ROTATIONS = (0, 90, 180, 270)
+
+_ROTATION_OPS = {
+    90: cv2.ROTATE_90_CLOCKWISE,
+    180: cv2.ROTATE_180,
+    270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+}
 
 
 def get_app() -> FaceAnalysis:
@@ -49,28 +65,71 @@ def get_app() -> FaceAnalysis:
 
 
 def _decode(image_bytes: bytes) -> np.ndarray:
-    arr = np.frombuffer(image_bytes, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if img is None:
-        raise InvalidImage("Could not decode image bytes")
-    return img
+    """Decode JPG / PNG / WEBP / BMP / GIF / TIFF / HEIC / HEIF -> BGR ndarray.
+
+    Honors EXIF Orientation via Pillow's exif_transpose so phone-shot photos
+    arrive upright instead of sideways. Returns a BGR uint8 ndarray, the same
+    convention InsightFace expects.
+    """
+    if not image_bytes:
+        raise InvalidImage("Empty image buffer (zero bytes)")
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as pil:
+            pil = ImageOps.exif_transpose(pil).convert("RGB")
+            rgb = np.array(pil)
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise InvalidImage(f"Could not decode image: {exc}") from exc
+    return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
 
-def embed(image_bytes: bytes) -> EmbeddingResult:
-    img = _decode(image_bytes)
-    faces = get_app().get(img)
-    if not faces:
-        raise NoFaceDetected("No face detected in the uploaded image")
+def _rotate(img: np.ndarray, deg: int) -> np.ndarray:
+    if deg == 0:
+        return img
+    return cv2.rotate(img, _ROTATION_OPS[deg])
 
+
+def _largest(faces):
     def area(face) -> float:
         x1, y1, x2, y2 = face.bbox
         return float(max(0.0, x2 - x1) * max(0.0, y2 - y1))
 
-    face = max(faces, key=area)
-    bbox = [int(v) for v in face.bbox]
+    return max(faces, key=area)
+
+
+def embed(image_bytes: bytes) -> EmbeddingResult:
+    """Detect + embed the largest face, trying 0/90/180/270 rotations.
+
+    The rotation that produces the highest-confidence detection is treated as
+    canonical. Both ingestion (sync) and inference (/match) call this, so a
+    photo enrolled at rotation R is queried at rotation R later — cosine
+    self-similarity for the same photo is preserved.
+    """
+    base = _decode(image_bytes)
+    app = get_app()
+    best: tuple[float, int, object, int] | None = None  # (score, deg, face, n_faces)
+    early_exit = settings.rotation_early_exit_score
+
+    for deg in ROTATIONS:
+        rotated = _rotate(base, deg)
+        faces = app.get(rotated)
+        if not faces:
+            continue
+        face = _largest(faces)
+        score = float(face.det_score)
+        if best is None or score > best[0]:
+            best = (score, deg, face, len(faces))
+        # Detector is confident; no need to spend cycles on further rotations.
+        if score >= early_exit:
+            break
+
+    if best is None:
+        raise NoFaceDetected("No face detected at any of 0/90/180/270 rotations")
+
+    score, rotation, face, count = best
     return EmbeddingResult(
         embedding=np.asarray(face.normed_embedding, dtype=np.float32),
-        bbox=bbox,
-        det_score=float(face.det_score),
-        face_count=len(faces),
+        bbox=[int(v) for v in face.bbox],
+        det_score=score,
+        face_count=count,
+        rotation=rotation,
     )

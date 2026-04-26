@@ -13,7 +13,9 @@ RUN pip install --upgrade pip setuptools wheel \
     && pip install \
         "streamlit>=1.40" \
         "requests>=2.32" \
-        "pillow>=10.4"
+        "pillow>=10.4" \
+        "pillow-heif>=0.18" \
+        "pandas>=2.0"
 
 COPY frontend/ ./frontend/
 

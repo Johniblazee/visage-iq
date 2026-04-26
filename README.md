@@ -68,8 +68,9 @@ The api never reads Drive at match time. Drive photos are pulled in by `/sync` (
 
 ```bash
 make env       # creates .env from .env.example
-make secrets   # creates secrets/ — drop your service-account JSON in as gdrive-sa.json
-# Edit .env and set GDRIVE_FOLDER_ID
+# Edit .env and set:
+#   GDRIVE_SA_JSON   — paste the full contents of your service-account JSON
+#   GDRIVE_FOLDER_ID — the Drive folder id
 
 make up        # docker compose up --build -d (~5–10 min on first build)
 make health    # smoke-test the api
@@ -83,18 +84,24 @@ Run `make help` for the full list of shortcuts.
 
 ## Drive credentials
 
-VisageIQ reads your photo library through a Google Cloud service account. One-time setup:
+VisageIQ reads your photo library through a Google Cloud service account. The service-account JSON is supplied as a single env var (`GDRIVE_SA_JSON`) — same mechanism locally and on Render. One-time setup:
 
 1. **Create / pick a Google Cloud project** at https://console.cloud.google.com/projectcreate.
 2. **Enable the Drive API**: https://console.cloud.google.com/apis/library/drive.googleapis.com.
 3. **Create a service account** at https://console.cloud.google.com/iam-admin/serviceaccounts. Name it (e.g. `visageiq-sa`). Skip role grants — Drive sharing handles access.
-4. **Generate a JSON key**: Service account → **Keys** → **Add Key → Create new key → JSON**.
-5. **Save the key** as `secrets/gdrive-sa.json` in this repo (gitignored).
-6. **Share your Drive folder** with the service account email (`<sa-name>@<project>.iam.gserviceaccount.com`), role **Viewer**.
-7. **Copy the folder ID** from the Drive URL `https://drive.google.com/drive/folders/<FOLDER_ID>`.
+4. **Generate a JSON key**: Service account → **Keys** → **Add Key → Create new key → JSON**. A `.json` file downloads.
+5. **Share your Drive folder** with the service account email (`<sa-name>@<project>.iam.gserviceaccount.com`), role **Viewer**.
+6. **Copy the folder ID** from the Drive URL `https://drive.google.com/drive/folders/<FOLDER_ID>`.
+7. **Put the JSON into `GDRIVE_SA_JSON`** in `.env`:
+   - Easiest: flatten to one line and wrap in single quotes:
+     ```bash
+     # produces a single-line GDRIVE_SA_JSON='{"type":...}' you can paste into .env
+     echo "GDRIVE_SA_JSON='$(cat /path/to/key.json | python -c 'import json,sys; print(json.dumps(json.load(sys.stdin)))')'"
+     ```
+   - Or paste multi-line between single quotes (python-dotenv supports it).
 8. **Set `GDRIVE_FOLDER_ID`** in `.env`.
 
-For Render (or any platform without Docker secret-file support), paste the JSON contents into the `GDRIVE_SA_JSON` env var instead of using the file path. VisageIQ prefers the env var when both are set.
+On Render, the same `GDRIVE_SA_JSON` env var is set on the **api** and **worker** services via the dashboard (the [Deployment](#deployment) section walks through this).
 
 ---
 
@@ -154,8 +161,7 @@ All configuration lives in `.env` (local) or service environment variables (Rend
 | `DATABASE_URL` | `postgresql://postgres:pg@db:5432/postgres` | Postgres DSN |
 | `REDIS_URL` | `redis://redis:6379/0` | Redis URL (cache + RQ + rate-limit) |
 | `GDRIVE_FOLDER_ID` | *(required)* | Drive folder shared with the service account |
-| `GDRIVE_SA_JSON_PATH` | `/run/secrets/gdrive-sa` | Path to mounted SA key (Docker secret) |
-| `GDRIVE_SA_JSON` | *(empty)* | Raw JSON contents of the SA key (alternative to the file path) |
+| `GDRIVE_SA_JSON` | *(required)* | Raw JSON contents of the service-account key |
 | `GDRIVE_RECURSIVE` | `true` | Walk subfolders during sync |
 | `INSIGHTFACE_MODEL` | `buffalo_l` | Try `antelopev2` for a fairness A/B |
 | `MATCH_THRESHOLD` | `0.40` | Cosine similarity floor for `MATCH` verdict |
@@ -177,14 +183,20 @@ A [`render.yaml`](render.yaml) Blueprint is included. It provisions five Render 
 1. **Push the repo to GitHub.**
 2. **Render dashboard → New + → Blueprint** → select the repo. Render reads `render.yaml`.
 3. **Fill secrets when prompted:**
-   - `GDRIVE_SA_JSON` — paste the full contents of `secrets/gdrive-sa.json` on **api** and **worker** services.
-   - `GDRIVE_FOLDER_ID` — the Drive folder ID on **api** and **worker** services.
+   - `GDRIVE_SA_JSON` — paste the full contents of your downloaded service-account JSON. Set on **api** and **worker** services. Render encrypts it.
+   - `GDRIVE_FOLDER_ID` — the Drive folder ID. Set on **api** and **worker** services.
 4. **First build takes ~5–10 minutes** because the Dockerfile bakes the InsightFace `buffalo_l` weights (~300 MB) so cold starts skip the download.
 5. **After the api deploys**, open the **ui** service → Environment → set `API_BASE_URL` to the api's public URL (e.g. `https://visageiq-api.onrender.com`). Save; the UI auto-redeploys.
 
 Pushes to the tracked branch auto-deploy all five resources. Schema migrations run idempotently on api startup, so additive changes (new columns, new indexes) require no manual step.
 
 **Cold starts:** Render starter plans suspend after 15 minutes of inactivity. The first request after suspension takes 10–20 seconds while the container wakes. Bump api + worker to **Standard** plan in `render.yaml` (or use a free uptime monitor pinging `/health`) for always-on behaviour.
+
+**Scaling sync throughput:** when the initial sync of a large folder feels slow, you can:
+
+- **Run multiple worker containers** (locally: `docker compose up -d --scale worker=4`; on Render: clone the worker service in `render.yaml`). Each worker holds its own ~500 MB InsightFace instance in RAM. Note the current `run_sync()` job is one big task, so >1 worker only helps for *concurrent* sync jobs, not for parallelising a single sync — see future per-file fan-out work for true linear speedup.
+- **Tune `ROTATION_EARLY_EXIT_SCORE`** (default `0.85`). Most photos are upright; the embedder breaks out of the 4-rotation loop after the first iteration when the detector is confident. Lower the value for more aggressive early-exit; raise to `1.0` to disable and always try all four rotations.
+- **Switch to GPU** for ~30× per-face speedup: `pip install onnxruntime-gpu` and `ONNX_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider`.
 
 ---
 
@@ -221,7 +233,7 @@ source .venv/bin/activate    # or .venv/Scripts/activate on Windows
 # 3. Point .env at localhost
 # DATABASE_URL=postgresql://postgres:pg@localhost:5432/postgres
 # REDIS_URL=redis://localhost:6379/0
-# GDRIVE_SA_JSON_PATH=./secrets/gdrive-sa.json
+# (GDRIVE_SA_JSON and GDRIVE_FOLDER_ID stay the same as the Docker case)
 
 # 4. Schema
 make init-db
@@ -240,7 +252,6 @@ For the initial bulk load without a worker, run `make sync` in a fourth terminal
 backend/         FastAPI service, InsightFace wrapper, Drive client, Redis cache, sync logic, RQ
 frontend/        Streamlit app
 scripts/         init_db.sql, enroll.py (foreground sync CLI)
-secrets/         gdrive-sa.json (gitignored)
 Dockerfile       Shared image for api + worker
 Dockerfile.ui    Slim Streamlit image
 docker-compose.yml
@@ -269,6 +280,8 @@ requirements.txt
 | `/match` returns zero candidates | `persons` table is empty — sync hasn't run | Click **Sync now** in the UI, or `curl -X POST .../sync`, or `make compose-sync` |
 | `422 No face detected` | Detector found no face | Check the image — too small, occluded, or non-photographic |
 | `DriveError: GDRIVE_FOLDER_ID not set` | Env var didn't load | Confirm `.env` has the line; restart the service |
+| `DriveError: GDRIVE_SA_JSON is not set` | Env var missing or empty | Paste the full SA JSON into `GDRIVE_SA_JSON` in `.env` (or Render env tab) |
+| `DriveError: GDRIVE_SA_JSON is not valid JSON` | Quoting / line-ending issue | Wrap the value in single quotes; flatten to one line first if needed |
 | `DriveError: ... 403` | Folder not shared with the SA | Share the Drive folder with the SA email, role **Viewer** |
 | `extension "vector" is not available` | Wrong Postgres image | Use `pgvector/pgvector:pg16`, never plain `postgres:16` |
 | Sync jobs stuck `queued` | No worker is consuming the queue | Confirm worker container/service is running (`make ps` / Render dashboard) |

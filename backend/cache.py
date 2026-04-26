@@ -33,3 +33,38 @@ def lock(name: str, ttl: int = 60) -> bool:
 
 def unlock(name: str) -> None:
     get_redis().delete(f"lock:{name}")
+
+
+# --- Drive-folder stats (set by sync, read by /health) ---
+
+DRIVE_TOTAL_KEY = "drive:total"
+DRIVE_LAST_SYNC_KEY = "drive:last_sync_finished_at"
+
+
+def set_drive_total(n: int) -> None:
+    get_redis().set(DRIVE_TOTAL_KEY, str(n))
+
+
+def get_drive_total() -> int | None:
+    val = get_redis().get(DRIVE_TOTAL_KEY)
+    if val is None:
+        return None
+    if isinstance(val, (bytes, bytearray)):
+        val = val.decode("utf-8", errors="ignore")
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def set_last_sync_finished_at(iso_ts: str) -> None:
+    get_redis().set(DRIVE_LAST_SYNC_KEY, iso_ts)
+
+
+def get_last_sync_finished_at() -> str | None:
+    val = get_redis().get(DRIVE_LAST_SYNC_KEY)
+    if val is None:
+        return None
+    if isinstance(val, (bytes, bytearray)):
+        return val.decode("utf-8", errors="ignore")
+    return val

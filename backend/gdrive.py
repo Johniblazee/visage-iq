@@ -34,16 +34,16 @@ class DriveFile:
 
 
 def _load_credentials():
-    if settings.gdrive_sa_json:
-        try:
-            info = json.loads(settings.gdrive_sa_json)
-        except json.JSONDecodeError as exc:
-            raise DriveError(f"GDRIVE_SA_JSON is not valid JSON: {exc}") from exc
-        return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
-    return service_account.Credentials.from_service_account_file(
-        settings.gdrive_sa_json_path,
-        scopes=SCOPES,
-    )
+    if not settings.gdrive_sa_json:
+        raise DriveError(
+            "GDRIVE_SA_JSON is not set. Paste the full contents of your "
+            "service-account JSON key into the GDRIVE_SA_JSON env var."
+        )
+    try:
+        info = json.loads(settings.gdrive_sa_json)
+    except json.JSONDecodeError as exc:
+        raise DriveError(f"GDRIVE_SA_JSON is not valid JSON: {exc}") from exc
+    return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
 
 
 @lru_cache(maxsize=1)
