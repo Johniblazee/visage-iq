@@ -68,3 +68,26 @@ def get_last_sync_finished_at() -> str | None:
     if isinstance(val, (bytes, bytearray)):
         return val.decode("utf-8", errors="ignore")
     return val
+
+
+# --- Active sync tracking (set on enqueue, cleared in run_sync's finally) ---
+
+ACTIVE_SYNC_KEY = "sync:active_job_id"
+ACTIVE_SYNC_TTL = 60 * 60  # 1h safety net if worker crashes without clearing
+
+
+def set_active_sync(job_id: str) -> None:
+    get_redis().set(ACTIVE_SYNC_KEY, job_id, ex=ACTIVE_SYNC_TTL)
+
+
+def get_active_sync() -> str | None:
+    val = get_redis().get(ACTIVE_SYNC_KEY)
+    if val is None:
+        return None
+    if isinstance(val, (bytes, bytearray)):
+        return val.decode("utf-8", errors="ignore")
+    return val
+
+
+def clear_active_sync() -> None:
+    get_redis().delete(ACTIVE_SYNC_KEY)

@@ -18,6 +18,12 @@ REDIS_URL    ?= redis://localhost:6379/0
 PORT_API     ?= 8000
 PORT_UI      ?= 8501
 
+# GPU detection — if the host has nvidia-smi *and* it works, layer
+# docker-compose.gpu.yml on top of the base compose file so the api +
+# worker services request the GPU. Otherwise run CPU-only.
+COMPOSE_FILES := -f docker-compose.yml $(shell command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1 && echo "-f docker-compose.gpu.yml")
+COMPOSE        := docker compose $(COMPOSE_FILES)
+
 VENV ?= .venv
 PY    = $(VENV)/bin/python
 PIP   = $(VENV)/bin/pip
@@ -72,43 +78,45 @@ init-db:  ## Apply scripts/init_db.sql against $$DATABASE_URL (sources .env)
 
 # --- Docker Compose --------------------------------------------------------
 
-up:  ## docker compose up --build -d
-	docker compose up --build -d
+up:  ## docker compose up --build -d (auto-detects GPU)
+	@echo "Compose files: $(COMPOSE_FILES)"
+	$(COMPOSE) up --build -d
 
 down:  ## docker compose down
-	docker compose down
+	$(COMPOSE) down
 
 logs:  ## Tail logs for all compose services
-	docker compose logs -f
+	$(COMPOSE) logs -f
 
 logs-api:  ## Tail logs for the api container
-	docker compose logs -f api
+	$(COMPOSE) logs -f api
 
 logs-worker:  ## Tail logs for the worker container
-	docker compose logs -f worker
+	$(COMPOSE) logs -f worker
 
 logs-ui:  ## Tail logs for the ui container
-	docker compose logs -f ui
+	$(COMPOSE) logs -f ui
 
 ps:  ## Show compose service status
-	docker compose ps
+	$(COMPOSE) ps
 
-rebuild:  ## Force-rebuild and recreate all compose services
-	docker compose up --build --force-recreate -d
+rebuild:  ## Force-rebuild and recreate all compose services (auto-detects GPU)
+	@echo "Compose files: $(COMPOSE_FILES)"
+	$(COMPOSE) up --build --force-recreate -d
 
 compose-sync:  ## Run a foreground sync inside the api container
-	docker compose run --rm api python scripts/enroll.py
+	$(COMPOSE) run --rm api python scripts/enroll.py
 
 compose-shell:  ## Open a bash shell inside the api container
-	docker compose exec api bash
+	$(COMPOSE) exec api bash
 
 # --- Database / Redis ------------------------------------------------------
 
 psql:  ## Open psql against the compose db service
-	docker compose exec db psql -U postgres
+	$(COMPOSE) exec db psql -U postgres
 
 redis-cli:  ## Open redis-cli against the compose redis service
-	docker compose exec redis redis-cli
+	$(COMPOSE) exec redis redis-cli
 
 # --- Health / Verify -------------------------------------------------------
 
@@ -127,4 +135,4 @@ clean:  ## Remove __pycache__ and *.pyc
 
 nuke:  ## DESTRUCTIVE: docker compose down -v (drops db + redis volumes)
 	@echo "About to drop ALL compose volumes (db data + redis data + insightface models)."
-	@read -p "Type 'yes' to confirm: " ans && [ "$$ans" = "yes" ] && docker compose down -v
+	@read -p "Type 'yes' to confirm: " ans && [ "$$ans" = "yes" ] && $(COMPOSE) down -v

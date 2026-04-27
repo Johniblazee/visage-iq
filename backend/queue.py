@@ -2,7 +2,7 @@ from functools import lru_cache
 
 from rq import Queue
 
-from backend.cache import get_redis
+from backend.cache import get_redis, set_active_sync
 
 SYNC_QUEUE = "sync"
 SYNC_JOB_TIMEOUT = 60 * 60
@@ -19,6 +19,9 @@ def enqueue_sync(prune: bool = True) -> str:
         prune,
         job_timeout=SYNC_JOB_TIMEOUT,
     )
+    # Mark as active immediately so the UI's progress widget lights up
+    # even before the worker has picked the job up.
+    set_active_sync(job.id)
     return job.id
 
 

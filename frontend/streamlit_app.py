@@ -1,13 +1,14 @@
 import hashlib
 import io
 import os
-import time
 from datetime import datetime, timezone
 
 import pillow_heif
 import requests
 import streamlit as st
 from PIL import Image, ImageDraw, ImageOps
+
+from _shared import render_active_sync_panel
 
 # Register HEIF/HEIC support so PIL.Image.open can decode iPhone photos.
 pillow_heif.register_heif_opener()
@@ -177,49 +178,12 @@ def _sidebar_status() -> None:
         st.caption(f"Model: `{health.get('model', '?')}`")
 
 
-def _poll_sync(job_id: str, max_seconds: int = 60 * 60) -> dict:
-    deadline = time.time() + max_seconds
-    status_ph = st.empty()
-    bar_ph = st.empty()
-    counters_ph = st.empty()
-    while time.time() < deadline:
-        try:
-            resp = requests.get(f"{API_BASE_URL}/sync/{job_id}", timeout=10)
-        except requests.RequestException as exc:
-            status_ph.error(f"Job poll error: {exc}")
-            return {"status": "error"}
-        if resp.status_code != 200:
-            status_ph.error(f"Job poll API error: {resp.status_code}")
-            return {"status": "error"}
-        data = resp.json()
-        status_ph.info(f"Sync status: **{data['status']}**")
-
-        prog = data.get("progress") or {}
-        total = prog.get("total") or 0
-        current = prog.get("current") or 0
-        if total > 0:
-            pct = max(0.0, min(1.0, current / total))
-            bar_ph.progress(pct, text=f"{current:,} of {total:,} files ({pct * 100:.1f}%)")
-            skipped = (
-                prog.get("skipped_no_face", 0)
-                + prog.get("skipped_invalid", 0)
-                + prog.get("skipped_drive_error", 0)
-            )
-            counters_ph.caption(
-                f"new: **{prog.get('new', 0):,}** · "
-                f"updated: **{prog.get('updated', 0):,}** · "
-                f"unchanged: **{prog.get('unchanged', 0):,}** · "
-                f"skipped: **{skipped:,}**"
-            )
-
-        if data["status"] in ("finished", "failed"):
-            return data
-        time.sleep(2)
-    status_ph.warning("Polling timed out.")
-    return {"status": "timeout"}
-
-
 def _sync_section() -> None:
+    """Enqueue a sync and return immediately.
+
+    Live progress is rendered by the shared `render_active_sync_panel`
+    fragment, which auto-refreshes every 2s and is visible from every page.
+    """
     with st.sidebar:
         st.subheader("Drive Sync")
         prune = st.checkbox("Remove rows for files deleted in Drive", value=True)
@@ -241,16 +205,8 @@ def _sync_section() -> None:
                 st.error(f"Sync failed ({resp.status_code}): {detail}")
                 return
             job_id = resp.json()["job_id"]
-            st.success(f"Sync queued: `{job_id}`")
-            data = _poll_sync(job_id)
-            if data.get("status") == "finished" and data.get("result"):
-                st.success(
-                    f"Sync done in {data['result']['duration_seconds']:.1f}s — "
-                    f"new {data['result']['new']}, updated {data['result']['updated']}, "
-                    f"deleted {data['result']['deleted']}"
-                )
-            elif data.get("status") == "failed":
-                st.error(f"Sync failed: {data.get('error')}")
+            st.success(f"Sync queued: `{job_id[:8]}` — see *Active Sync* panel below.")
+            st.rerun()
 
 
 def _threshold_sliders() -> tuple[float, float]:
@@ -308,6 +264,7 @@ def main() -> None:
 
     _sidebar_status()
     _sync_section()
+    render_active_sync_panel()
     match_t, review_t = _threshold_sliders()
     top_k = st.sidebar.slider("Top K candidates", 1, FETCH_TOP_K, 3)
     st.sidebar.write(f"API: `{API_BASE_URL}`")

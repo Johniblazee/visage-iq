@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     insightface_model: str = "buffalo_l"
     det_size: int = 640
     onnx_providers: str = "CPUExecutionProvider"
+    rotation_enabled: bool = True
     rotation_early_exit_score: float = 0.85
 
     match_threshold: float = 0.40

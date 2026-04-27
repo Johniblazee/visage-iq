@@ -1,0 +1,56 @@
+# GPU image for the api + worker services. Built only when running with
+# docker-compose.gpu.yml on a host that has an NVIDIA GPU + nvidia-container-toolkit.
+#
+# Base provides CUDA 12.6 runtime + cuDNN 9, which is what onnxruntime-gpu 1.20.x
+# links against (specifically libcublasLt.so.12 — the lib missing in the slim CPU
+# image that caused the silent CPU fallback).
+
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04 AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# Python 3.12 from deadsnakes PPA (Ubuntu 22.04 ships 3.10 by default).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common \
+        gnupg \
+        ca-certificates \
+        curl \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 \
+        python3.12-venv \
+        python3.12-dev \
+        build-essential \
+        cmake \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python3.12 the default `python` and install pip against it.
+RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 \
+    && python -m pip install --upgrade pip setuptools wheel
+
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN python -m pip install --ignore-installed -r requirements.txt
+
+# Pre-fetch InsightFace model weights at build time so cold starts skip the ~300MB download.
+RUN python -c "from insightface.app import FaceAnalysis; \
+    app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider']); \
+    app.prepare(ctx_id=-1, det_size=(640, 640))"
+
+COPY backend/ ./backend/
+COPY scripts/ ./scripts/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

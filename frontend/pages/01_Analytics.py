@@ -1,8 +1,19 @@
 import os
+import sys
+from pathlib import Path
 
 import pandas as pd
 import requests
 import streamlit as st
+
+# Ensure the parent `frontend/` directory is on sys.path so the shared
+# helpers module is importable when this page is loaded by Streamlit's
+# multi-page router.
+_FRONTEND_DIR = str(Path(__file__).resolve().parent.parent)
+if _FRONTEND_DIR not in sys.path:
+    sys.path.insert(0, _FRONTEND_DIR)
+
+from _shared import render_active_sync_panel  # noqa: E402
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://api:8000")
 
@@ -81,6 +92,8 @@ def _matrix_table(rows: list[dict]) -> pd.DataFrame:
 
 def main() -> None:
     st.set_page_config(page_title="VisageIQ — Analytics", layout="wide")
+    render_active_sync_panel()  # sidebar widget; auto-hides if no sync running
+
     st.title("Sync Analytics")
     st.caption(
         "Per-file outcomes from the most recent sync. Updates every ~10s "
@@ -153,15 +166,19 @@ def main() -> None:
     st.divider()
 
     st.subheader("Browse files")
-    filt_cols = st.columns([2, 2, 4])
+    filt_cols = st.columns([2, 2, 4, 1.2])
     outcome_options = ["(any)"] + sorted(by_outcome.keys())
     sel_outcome = filt_cols[0].selectbox("Outcome", outcome_options, index=0)
     ext_options = ["(any)"] + sorted(by_ext.keys())
     sel_ext = filt_cols[1].selectbox("Extension", ext_options, index=0)
     sel_q = filt_cols[2].text_input("Filename contains", "")
+    page_size = filt_cols[3].selectbox(
+        "Per page", [50, 100, 200, 500], index=0,
+        help="Rows shown per page below.",
+    )
 
-    page_size = 50
-    page_key = f"analytics_offset:{sel_outcome}:{sel_ext}:{sel_q}"
+    # Page size in the key so changing it resets pagination naturally.
+    page_key = f"analytics_offset:{sel_outcome}:{sel_ext}:{sel_q}:{page_size}"
     offset = int(st.session_state.get(page_key, 0))
 
     page = _fetch_files(
@@ -192,11 +209,17 @@ def main() -> None:
             "last_seen_at",
             "drive_file_id",
         ]
-        st.dataframe(
-            files_df[[c for c in display_cols if c in files_df.columns]],
-            hide_index=True,
-            width="stretch",
-        )
+        view = files_df[[c for c in display_cols if c in files_df.columns]].copy()
+        # Render NULL / None as blank cells instead of the literal string "None".
+        # Round det_score to 3 decimals to keep the column readable.
+        if "det_score" in view.columns:
+            view["det_score"] = view["det_score"].apply(
+                lambda v: f"{v:.3f}" if isinstance(v, (int, float)) else ""
+            )
+        for col in ("reason", "rotation", "ext", "mime_type"):
+            if col in view.columns:
+                view[col] = view[col].apply(lambda v: "" if v is None else v)
+        st.dataframe(view, hide_index=True, width="stretch")
 
     nav = st.columns([1, 1, 6])
     with nav[0]:

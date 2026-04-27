@@ -9,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.cache import (
+    get_active_sync,
     get_drive_total,
     get_image,
     get_last_sync_finished_at,
@@ -166,6 +167,7 @@ def health() -> HealthResponse:
         enrolled_count=_enrolled_count(),
         drive_total=get_drive_total(),
         last_sync_finished_at=get_last_sync_finished_at(),
+        active_sync_job_id=get_active_sync(),
     )
 
 

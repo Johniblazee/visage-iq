@@ -31,6 +31,7 @@ class HealthResponse(BaseModel):
     enrolled_count: int
     drive_total: int | None = None
     last_sync_finished_at: str | None = None
+    active_sync_job_id: str | None = None
 
 
 class SyncEnqueueResponse(BaseModel):

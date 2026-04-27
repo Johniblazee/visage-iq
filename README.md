@@ -76,9 +76,75 @@ make up        # docker compose up --build -d (~5–10 min on first build)
 make health    # smoke-test the api
 ```
 
-Open the UI at http://localhost:8501. Click **Sync now** in the sidebar to populate the database. Upload a photo to see matches.
+Open the UI at http://localhost:8501. The sidebar nav has two pages: **Home** (match flow) and **Analytics** (per-file outcomes from the last sync). Click **Sync now** in the sidebar to populate the database. Upload a photo to see matches.
+
+While a sync is running, an **Active Sync** widget appears in the sidebar with a live progress bar and counters; it follows you as you switch between pages.
 
 Run `make help` for the full list of shortcuts.
+
+---
+
+## Hardware modes — CPU vs GPU
+
+VisageIQ ships in two flavours sharing the same code:
+
+| Mode | Image base | When to pick it |
+|---|---|---|
+| **CPU** ([Dockerfile](Dockerfile)) | `python:3.12-slim-bookworm` | No NVIDIA GPU, or GPU available but you don't want the ~3 GB CUDA base image. Per-face embed: ~300 ms (~1.0 s with the 4-rotation iteration). |
+| **GPU** ([Dockerfile.gpu](Dockerfile.gpu)) | `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04` | You have an NVIDIA GPU + driver + nvidia-container-toolkit. Per-face embed: ~50 ms — roughly 30× faster on a 22 k-photo sync. |
+
+The Makefile detects `nvidia-smi` on the host and **automatically** layers [docker-compose.gpu.yml](docker-compose.gpu.yml) on top of the base compose file when present. No manual flags.
+
+```bash
+make up      # CPU if no nvidia-smi; GPU if there is. Echoes which compose files were applied.
+```
+
+### Manual command equivalents
+
+```bash
+# CPU mode — just the base file
+docker compose up -d --build
+
+# GPU mode — base + override
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
+### GPU prerequisites
+
+```bash
+nvidia-smi                                           # NVIDIA driver visible to the host
+docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu22.04 nvidia-smi
+                                                     # ↑ verifies nvidia-container-toolkit
+```
+
+If the second command errors, install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host before running `make up`.
+
+### Verify GPU is engaged
+
+```bash
+curl -s http://localhost:8000/health | jq .providers
+# Expect: ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+make logs-worker | grep -i "Applied providers"
+# Expect: Applied providers: ['CUDAExecutionProvider', 'CPUExecutionProvider'], with options: ...
+```
+
+If you see only `CPUExecutionProvider`, ONNX Runtime fell back to CPU silently — usually because the container couldn't load `libcublasLt.so.12`. That happens when the api/worker were built from the CPU `Dockerfile` instead of `Dockerfile.gpu`. Run `make rebuild` on a host that has `nvidia-smi` so the Makefile picks the GPU Dockerfile.
+
+In `.env`, make sure CUDA is listed first:
+
+```
+ONNX_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider
+```
+
+CPU is left as the fallback so the same `.env` works on either mode — ONNX picks whichever provider it can actually load.
+
+### Trade-offs
+
+- **GPU image first build:** 5–15 minutes (downloads the CUDA runtime base + builds Python 3.12 from deadsnakes + bakes the InsightFace model). Subsequent rebuilds are minutes.
+- **GPU image disk size:** ~3 GB vs ~1.2 GB for CPU.
+- **Match latency:** typically dominated by the embedding step. GPU pulls a single match from ~1.0 s to ~150–200 ms.
+- **No GPU on Render:** Render Standard plans don't expose GPUs. The `render.yaml` blueprint uses the CPU `Dockerfile` regardless.
 
 ---
 
@@ -110,8 +176,9 @@ On Render, the same `GDRIVE_SA_JSON` env var is set on the **api** and **worker*
 ### From the UI
 
 1. Open http://localhost:8501.
-2. Sidebar → **Sync now** to import the Drive folder (one-time, then every 30 min automatically).
-3. Upload a portrait. Top-3 candidates render with thumbnails, confidence percentage, and verdict badge.
+2. Sidebar → **Sync now** to import the Drive folder (one-time, then every 30 min automatically). The **Active Sync** panel appears in the sidebar with a live progress bar and counters; it stays visible if you switch to **Analytics**.
+3. Upload a portrait on the home page. Top-3 candidates render with thumbnails, confidence percentage, verdict badge, and a **Top match: NN%** summary line. Sliders on the sidebar adjust the MATCH / REVIEW thresholds — verdict pills update live without re-querying.
+4. Open **Analytics** (sidebar nav) for a breakdown of every file the worker has seen: outcome counts (`enrolled` / `unchanged` / `no_face` / `invalid_image` / `drive_error` / `embed_error`), file-extension distribution, an outcome×ext matrix, and a paginated browser of skipped files with reasons (50/100/200/500 rows per page).
 
 ### From the API
 
@@ -136,6 +203,8 @@ API response (`/match`):
   "query_face_bbox": [x1, y1, x2, y2],
   "query_face_count": 1,
   "query_det_score": 0.92,
+  "query_rotation": 0,
+  "enrolled_count": 21358,
   "candidates": [
     {
       "drive_file_id": "1AbC...",
@@ -147,6 +216,8 @@ API response (`/match`):
   ]
 }
 ```
+
+`/health` reports more than just liveness — it carries `enrolled_count`, `drive_total`, `last_sync_finished_at`, and `active_sync_job_id` for the sidebar widgets.
 
 OpenAPI docs are auto-generated at http://localhost:8000/docs.
 
@@ -164,6 +235,8 @@ All configuration lives in `.env` (local) or service environment variables (Rend
 | `GDRIVE_SA_JSON` | *(required)* | Raw JSON contents of the service-account key |
 | `GDRIVE_RECURSIVE` | `true` | Walk subfolders during sync |
 | `INSIGHTFACE_MODEL` | `buffalo_l` | Try `antelopev2` for a fairness A/B |
+| `ROTATION_ENABLED` | `true` | When `true`, embedder tries 0°/90°/180°/270° and keeps the highest-`det_score` rotation. `false` → only 0° (fastest, but tilted photos may not detect). |
+| `ROTATION_EARLY_EXIT_SCORE` | `0.85` | When rotation is enabled, break out of the loop as soon as a rotation produces ≥ this `det_score`. Set `1.0` to always try all four. Ignored when rotation is disabled. |
 | `MATCH_THRESHOLD` | `0.40` | Cosine similarity floor for `MATCH` verdict |
 | `REVIEW_THRESHOLD` | `0.30` | Floor for `REVIEW` (below → `NO_MATCH`) |
 | `TOP_K` | `3` | Default candidates returned by `/match` |
@@ -249,14 +322,23 @@ For the initial bulk load without a worker, run `make sync` in a fourth terminal
 ### Project structure
 
 ```
-backend/         FastAPI service, InsightFace wrapper, Drive client, Redis cache, sync logic, RQ
-frontend/        Streamlit app
-scripts/         init_db.sql, enroll.py (foreground sync CLI)
-Dockerfile       Shared image for api + worker
-Dockerfile.ui    Slim Streamlit image
-docker-compose.yml
-render.yaml
-Makefile
+backend/                 FastAPI service, InsightFace wrapper, Drive client,
+                         Redis cache, sync logic, RQ, analytics queries
+frontend/
+├── streamlit_app.py     Home page (match flow)
+├── _shared.py           Shared utilities (active-sync sidebar fragment)
+└── pages/
+    └── 01_Analytics.py  Analytics page (auto-discovered by Streamlit)
+scripts/                 init_db.sql (persons + file_status tables),
+                         enroll.py (foreground sync CLI)
+Dockerfile               CPU image for api + worker (slim-bookworm)
+Dockerfile.gpu           GPU image — CUDA 12.6 + cuDNN 9 + Python 3.12
+Dockerfile.ui            Slim Streamlit image
+docker-compose.yml       Base compose (CPU)
+docker-compose.gpu.yml   Override — switches api/worker to Dockerfile.gpu and
+                         requests the NVIDIA GPU. Auto-applied by the Makefile.
+render.yaml              Render Blueprint (CPU only — Render plans don't expose GPU)
+Makefile                 Auto-detects nvidia-smi and layers docker-compose.gpu.yml
 requirements.txt
 ```
 
@@ -264,11 +346,13 @@ requirements.txt
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | DB + Redis liveness, model name |
-| `POST` | `/match` | Upload an image, get top-K candidates |
+| `GET` | `/health` | DB + Redis liveness, model name, `enrolled_count`, `drive_total`, `last_sync_finished_at`, `active_sync_job_id` |
+| `POST` | `/match` | Upload an image, get top-K candidates with `query_rotation` + `enrolled_count` |
 | `POST` | `/sync` | Enqueue a Drive→DB sync job |
-| `GET` | `/sync/{job_id}` | Poll a sync job's status |
+| `GET` | `/sync/{job_id}` | Poll a sync job's status — includes live `progress` (`current`/`total`/counters) |
 | `GET` | `/image/{file_id}` | Drive-image proxy (Redis-cached) for thumbnails |
+| `GET` | `/analytics/summary` | Outcome counts, extension distribution, outcome×ext matrix |
+| `GET` | `/analytics/files` | Paginated `file_status` rows with `outcome` / `ext` / `q` filters |
 | `GET` | `/docs` | Auto-generated OpenAPI |
 
 ---
@@ -288,6 +372,11 @@ requirements.txt
 | `429 rate limit exceeded` | slowapi cap hit | Bump `MATCH_RATE_LIMIT` / `SYNC_RATE_LIMIT` in `.env` |
 | Render cold start (~15s) | Starter plan suspended after idle | Bump to Standard plan, or accept it |
 | Thumbnail returns 502 | api couldn't fetch from Drive | Check api logs; usually a permission revoke or deleted file |
+| `Failed to load library libonnxruntime_providers_cuda.so ... libcublasLt.so.12` | api/worker built from CPU `Dockerfile` (no CUDA libs) | Run `make rebuild` on a host with `nvidia-smi`; the Makefile picks `Dockerfile.gpu` automatically |
+| `E: Unable to locate package python3.12-distutils` (build) | Python 3.12 doesn't ship a separate distutils package | Already fixed — pull latest `Dockerfile.gpu` |
+| `Calling st.sidebar in a function wrapped with st.fragment is not supported` | Streamlit's rule: a fragment writes to its caller's container | Already fixed in `frontend/_shared.py`; pull latest |
+| `image file is truncated` / `Empty image buffer (zero bytes)` in worker logs | Partial Drive uploads or zero-byte files | Expected. Logged as `invalid_image` in the `file_status` table; visible on the Analytics page's *Browse files* with `outcome=invalid_image`. |
+| Active Sync widget never appears | Worker is processing but `active_sync_job_id` Redis key wasn't set | Fall back to `make logs-worker`; if a job is running, manually set the key with `make redis-cli` then `SET sync:active_job_id <job_id>` (or wait for the next sync — `enqueue_sync` always sets it) |
 
 ---
 

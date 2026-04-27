@@ -2,7 +2,13 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from backend.cache import lock, set_drive_total, set_last_sync_finished_at, unlock
+from backend.cache import (
+    clear_active_sync,
+    lock,
+    set_drive_total,
+    set_last_sync_finished_at,
+    unlock,
+)
 from backend.config import settings
 from backend.db import pool
 from backend.embedding import InvalidImage, NoFaceDetected, embed
@@ -279,6 +285,7 @@ def run_sync(prune: bool = True) -> SyncStats:
                 )
     finally:
         unlock(SYNC_LOCK_NAME)
+        clear_active_sync()
         set_last_sync_finished_at(datetime.now(timezone.utc).isoformat())
 
     stats.duration_seconds = (datetime.now(timezone.utc) - started).total_seconds()

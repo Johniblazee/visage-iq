@@ -108,8 +108,9 @@ def embed(image_bytes: bytes) -> EmbeddingResult:
     app = get_app()
     best: tuple[float, int, object, int] | None = None  # (score, deg, face, n_faces)
     early_exit = settings.rotation_early_exit_score
+    rotations = ROTATIONS if settings.rotation_enabled else (0,)
 
-    for deg in ROTATIONS:
+    for deg in rotations:
         rotated = _rotate(base, deg)
         faces = app.get(rotated)
         if not faces:
@@ -123,7 +124,12 @@ def embed(image_bytes: bytes) -> EmbeddingResult:
             break
 
     if best is None:
-        raise NoFaceDetected("No face detected at any of 0/90/180/270 rotations")
+        msg = (
+            "No face detected at any of 0/90/180/270 rotations"
+            if settings.rotation_enabled
+            else "No face detected (rotation iteration disabled)"
+        )
+        raise NoFaceDetected(msg)
 
     score, rotation, face, count = best
     return EmbeddingResult(

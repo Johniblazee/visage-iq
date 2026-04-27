@@ -1,0 +1,36 @@
+# GPU override. Apply on top of docker-compose.yml when running on a host
+# with an NVIDIA GPU + nvidia-container-toolkit installed.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# The Makefile auto-detects nvidia-smi and applies this file for you when
+# `make up` / `make rebuild` is run.
+#
+# Set ONNX_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider in .env so
+# onnxruntime tries CUDA first and falls back to CPU only if CUDA fails.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
