@@ -108,27 +108,42 @@ def embed(image_bytes: bytes) -> EmbeddingResult:
     app = get_app()
     best: tuple[float, int, object, int] | None = None  # (score, deg, face, n_faces)
     early_exit = settings.rotation_early_exit_score
-    rotations = ROTATIONS if settings.rotation_enabled else (0,)
+
+    # Resolve the effective rotation mode.
+    mode = (settings.rotation_mode or "fallback").lower()
+    if not settings.rotation_enabled:
+        mode = "off"  # kill-switch wins
+    if mode not in ("off", "fallback", "always"):
+        mode = "fallback"  # safe default for unknown values
+
+    rotations = (0,) if mode == "off" else ROTATIONS
 
     for deg in rotations:
         rotated = _rotate(base, deg)
         faces = app.get(rotated)
         if not faces:
-            continue
+            continue  # nothing here; try next rotation (or give up if "off")
+
         face = _largest(faces)
         score = float(face.det_score)
         if best is None or score > best[0]:
             best = (score, deg, face, len(faces))
-        # Detector is confident; no need to spend cycles on further rotations.
-        if score >= early_exit:
+
+        if mode == "fallback":
+            # 0° (or whichever first rotation hit) found a face — accept it
+            # without spending cycles on the remaining rotations.
+            break
+        if mode == "always" and score >= early_exit:
+            # Detector is confident; no need to keep iterating.
             break
 
     if best is None:
-        msg = (
-            "No face detected at any of 0/90/180/270 rotations"
-            if settings.rotation_enabled
-            else "No face detected (rotation iteration disabled)"
-        )
+        if mode == "off":
+            msg = "No face detected (rotation mode=off, only 0° tried)"
+        elif mode == "fallback":
+            msg = "No face detected at 0° or any fallback rotation (90/180/270)"
+        else:
+            msg = "No face detected at any of 0/90/180/270 rotations"
         raise NoFaceDetected(msg)
 
     score, rotation, face, count = best

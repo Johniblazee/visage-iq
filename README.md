@@ -235,8 +235,9 @@ All configuration lives in `.env` (local) or service environment variables (Rend
 | `GDRIVE_SA_JSON` | *(required)* | Raw JSON contents of the service-account key |
 | `GDRIVE_RECURSIVE` | `true` | Walk subfolders during sync |
 | `INSIGHTFACE_MODEL` | `buffalo_l` | Try `antelopev2` for a fairness A/B |
-| `ROTATION_ENABLED` | `true` | When `true`, embedder tries 0°/90°/180°/270° and keeps the highest-`det_score` rotation. `false` → only 0° (fastest, but tilted photos may not detect). |
-| `ROTATION_EARLY_EXIT_SCORE` | `0.85` | When rotation is enabled, break out of the loop as soon as a rotation produces ≥ this `det_score`. Set `1.0` to always try all four. Ignored when rotation is disabled. |
+| `ROTATION_MODE` | `fallback` | One of `off` / `fallback` / `always`. **`off`**: only 0° is tried (fastest; tilted photos skipped). **`fallback`** *(recommended)*: try 0° first, only try 90°/180°/270° if 0° found no face. **`always`**: iterate all four, pick highest `det_score` (most robust, most expensive). |
+| `ROTATION_ENABLED` | `true` | Kill-switch. If `false`, forces `ROTATION_MODE=off` regardless of the value above. |
+| `ROTATION_EARLY_EXIT_SCORE` | `0.85` | Used only when `ROTATION_MODE=always`: short-circuit the loop as soon as a rotation produces ≥ this `det_score`. Set `1.0` to always try all four. |
 | `MATCH_THRESHOLD` | `0.40` | Cosine similarity floor for `MATCH` verdict |
 | `REVIEW_THRESHOLD` | `0.30` | Floor for `REVIEW` (below → `NO_MATCH`) |
 | `TOP_K` | `3` | Default candidates returned by `/match` |

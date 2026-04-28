@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     det_size: int = 640
     onnx_providers: str = "CPUExecutionProvider"
     rotation_enabled: bool = True
+    # rotation_mode: "off" | "fallback" | "always"
+    #   off       — only 0° is ever tried.
+    #   fallback  — try 0°; only try 90/180/270 if 0° found no face.
+    #   always    — iterate all four; pick highest det_score (with early-exit).
+    # `rotation_enabled=false` is a kill-switch that forces "off" regardless of mode.
+    rotation_mode: str = "fallback"
     rotation_early_exit_score: float = 0.85
 
     match_threshold: float = 0.40

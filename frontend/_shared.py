@@ -41,12 +41,15 @@ def _render_active_sync_fragment() -> None:
 
     status = data.get("status")
     prog = data.get("progress") or {}
+    phase = prog.get("phase")
     total = int(prog.get("total") or 0)
     current = int(prog.get("current") or 0)
+    listed = int(prog.get("listed") or 0)
 
     st.subheader("Active Sync")
     st.caption(f"Job `{job_id[:8]}` · status: **{status}**")
-    if total > 0:
+
+    if phase == "embedding" and total > 0:
         pct = max(0.0, min(1.0, current / total))
         st.progress(
             pct,
@@ -63,9 +66,15 @@ def _render_active_sync_fragment() -> None:
             f"unchanged: **{int(prog.get('unchanged', 0)):,}** · "
             f"skipped: **{skipped:,}**"
         )
+    elif phase == "listing":
+        # Listing phase — total is unknown until walk finishes.
+        if listed > 0:
+            st.caption(f"📂 Listing Drive folder… **{listed:,}** files found so far")
+        else:
+            st.caption("📂 Listing Drive folder…")
     elif status in ("queued", "started"):
-        # No total yet (worker hasn't finished listing). Indeterminate state.
-        st.caption("listing Drive folder…")
+        # Worker is queued or just started; no progress.meta written yet.
+        st.caption("⏳ Worker starting…")
 
 
 def render_active_sync_panel() -> None:

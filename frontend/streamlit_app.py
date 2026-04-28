@@ -215,12 +215,12 @@ def _threshold_sliders() -> tuple[float, float]:
         match_t = st.slider(
             "Match floor (cosine similarity)",
             min_value=0.0, max_value=1.0,
-            value=float(os.getenv("UI_DEFAULT_MATCH", "0.80")),
+            value=float(os.getenv("UI_DEFAULT_MATCH", "0.60")),
             step=0.01,
             help="Similarity ≥ this → MATCH",
         )
         review_max = max(0.01, match_t)
-        review_default = min(float(os.getenv("UI_DEFAULT_REVIEW", "0.70")), review_max)
+        review_default = min(float(os.getenv("UI_DEFAULT_REVIEW", "0.40")), review_max)
         review_t = st.slider(
             "Review floor (cosine similarity)",
             min_value=0.0, max_value=review_max,

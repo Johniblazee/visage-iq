@@ -125,13 +125,15 @@ def _current_job():
         return None
 
 
-PROGRESS_WRITE_EVERY = 5  # write to job.meta every N files
+PROGRESS_WRITE_EVERY = 5      # write to job.meta every N files (processing)
+LISTING_WRITE_EVERY = 500     # write to job.meta every N files (listing)
 
 
 def _write_progress(job, stats: "SyncStats", idx: int, total: int) -> None:
     if job is None:
         return
     job.meta["progress"] = {
+        "phase": "embedding",
         "current": idx,
         "total": total,
         "new": stats.new,
@@ -145,6 +147,33 @@ def _write_progress(job, stats: "SyncStats", idx: int, total: int) -> None:
         job.save_meta()
     except Exception:
         # best-effort; never fail a sync because Redis hiccupped
+        logger.debug("failed to save job meta", exc_info=True)
+
+
+def _write_listing_progress(job, listed: int) -> None:
+    """Lightweight progress write while we're still walking Drive.
+
+    `total` is unknown until listing finishes, so we report only `listed`.
+    The UI uses `phase == "listing"` to render an indeterminate state with
+    a "files found so far" counter.
+    """
+    if job is None:
+        return
+    job.meta["progress"] = {
+        "phase": "listing",
+        "current": 0,
+        "total": 0,
+        "listed": listed,
+        "new": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "skipped_no_face": 0,
+        "skipped_invalid": 0,
+        "skipped_drive_error": 0,
+    }
+    try:
+        job.save_meta()
+    except Exception:
         logger.debug("failed to save job meta", exc_info=True)
 
 
@@ -166,7 +195,15 @@ def run_sync(prune: bool = True) -> SyncStats:
 
         existing = _existing()
         logger.info("%s walking Drive folder...", prefix)
-        drive_files = list(list_image_files())
+        _write_listing_progress(job, 0)
+
+        drive_files: list = []
+        for df in list_image_files():
+            drive_files.append(df)
+            if len(drive_files) % LISTING_WRITE_EVERY == 0:
+                _write_listing_progress(job, len(drive_files))
+                logger.info("%s listing... %d files found so far", prefix, len(drive_files))
+
         total = len(drive_files)
         stats.listed = total
         set_drive_total(total)
