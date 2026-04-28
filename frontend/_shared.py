@@ -72,6 +72,13 @@ def _render_active_sync_fragment() -> None:
             st.caption(f"📂 Listing Drive folder… **{listed:,}** files found so far")
         else:
             st.caption("📂 Listing Drive folder…")
+    elif phase == "skipped":
+        reason = prog.get("reason") or "another sync is already running"
+        st.warning(f"⏭ Sync skipped — {reason}")
+        st.caption(
+            "If you're sure no sync is actually running, use **Force unlock** "
+            "in the *Drive Sync* section."
+        )
     elif status in ("queued", "started"):
         # Worker is queued or just started; no progress.meta written yet.
         st.caption("⏳ Worker starting…")

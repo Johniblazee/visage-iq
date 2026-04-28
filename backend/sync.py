@@ -185,6 +185,19 @@ def run_sync(prune: bool = True) -> SyncStats:
 
     if not lock(SYNC_LOCK_NAME, ttl=3600):
         logger.warning("%s already in progress; skipping", prefix)
+        # The enqueue path stamped sync:active_job_id; this run isn't doing
+        # anything, so clear it so the UI's Active Sync widget hides instead
+        # of staying lit on a finished-but-did-nothing job.
+        clear_active_sync()
+        if job is not None:
+            job.meta["progress"] = {
+                "phase": "skipped",
+                "reason": "another sync is already running",
+            }
+            try:
+                job.save_meta()
+            except Exception:
+                logger.debug("failed to save skip meta", exc_info=True)
         return stats
 
     try:

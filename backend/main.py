@@ -9,12 +9,14 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from backend.cache import (
+    clear_active_sync,
     get_active_sync,
     get_drive_total,
     get_image,
     get_last_sync_finished_at,
     get_redis,
     set_image,
+    unlock,
 )
 from backend.config import settings
 from backend.db import bootstrap_schema, pool
@@ -205,6 +207,26 @@ async def match(
 def trigger_sync(request: Request, prune: bool = Query(default=True)) -> SyncEnqueueResponse:
     job_id = enqueue_sync(prune=prune)
     return SyncEnqueueResponse(job_id=job_id)
+
+
+@app.post("/sync/force-unlock")
+@limiter.limit("5/minute")
+def force_unlock(request: Request) -> dict:
+    """Release a stuck sync lock.
+
+    `run_sync()` acquires `lock:sync` and is supposed to release it in its
+    `finally` block. If the worker dies before reaching `finally` (OOM, kill,
+    container restart) the lock can sit untouched until its 1-hour TTL expires
+    and every new sync skips with "already in progress."
+
+    Use only when you're sure no sync is actually running.
+    """
+    from backend.sync import SYNC_LOCK_NAME
+
+    unlock(SYNC_LOCK_NAME)
+    clear_active_sync()
+    logger.warning("force-unlock requested: lock:sync and sync:active_job_id cleared")
+    return {"cleared": True}
 
 
 @app.get("/sync/{job_id}", response_model=SyncJobStatus)

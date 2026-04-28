@@ -351,7 +351,8 @@ requirements.txt
 | `GET` | `/health` | DB + Redis liveness, model name, `enrolled_count`, `drive_total`, `last_sync_finished_at`, `active_sync_job_id` |
 | `POST` | `/match` | Upload an image, get top-K candidates with `query_rotation` + `enrolled_count` |
 | `POST` | `/sync` | Enqueue a Drive→DB sync job |
-| `GET` | `/sync/{job_id}` | Poll a sync job's status — includes live `progress` (`current`/`total`/counters) |
+| `GET` | `/sync/{job_id}` | Poll a sync job's status — includes live `progress` (`phase`/`current`/`total`/counters; `phase=skipped` when lock-blocked) |
+| `POST` | `/sync/force-unlock` | Emergency: clears `lock:sync` + `sync:active_job_id` if a previous sync died holding the lock. Rate-limited 5/min. |
 | `GET` | `/image/{file_id}` | Drive-image proxy (Redis-cached) for thumbnails |
 | `GET` | `/analytics/summary` | Outcome counts, extension distribution, outcome×ext matrix |
 | `GET` | `/analytics/files` | Paginated `file_status` rows with `outcome` / `ext` / `q` filters |
@@ -371,6 +372,7 @@ requirements.txt
 | `DriveError: ... 403` | Folder not shared with the SA | Share the Drive folder with the SA email, role **Viewer** |
 | `extension "vector" is not available` | Wrong Postgres image | Use `pgvector/pgvector:pg16`, never plain `postgres:16` |
 | Sync jobs stuck `queued` | No worker is consuming the queue | Confirm worker container/service is running (`make ps` / Render dashboard) |
+| Worker logs `[sync …] already in progress; skipping` and exits in ~2s on every retry; worker memory stays at ~28 MB | Stuck Redis lock — a previous worker died before its `finally` block could run `unlock(SYNC_LOCK_NAME)`. The `lock:sync` key has up to a 1-hour TTL. | Sidebar → **Drive Sync** → expand **Force unlock (advanced)** → click **⚠ Force unlock**. Or manually: `make redis-cli` → `DEL lock:sync` + `DEL sync:active_job_id`. Then click **Sync now** again. |
 | `429 rate limit exceeded` | slowapi cap hit | Bump `MATCH_RATE_LIMIT` / `SYNC_RATE_LIMIT` in `.env` |
 | Render cold start (~15s) | Starter plan suspended after idle | Bump to Standard plan, or accept it |
 | Thumbnail returns 502 | api couldn't fetch from Drive | Check api logs; usually a permission revoke or deleted file |

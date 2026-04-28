@@ -208,6 +208,26 @@ def _sync_section() -> None:
             st.success(f"Sync queued: `{job_id[:8]}` — see *Active Sync* panel below.")
             st.rerun()
 
+        with st.expander("Force unlock (advanced)", expanded=False):
+            st.caption(
+                "Use only when a previous sync was killed mid-flight and "
+                "every new attempt logs *already in progress; skipping*. "
+                "Releases the Redis lock and clears the active-sync key."
+            )
+            if st.button("⚠ Force unlock"):
+                try:
+                    resp = requests.post(
+                        f"{API_BASE_URL}/sync/force-unlock", timeout=10
+                    )
+                except requests.RequestException as exc:
+                    st.error(f"Could not reach API: {exc}")
+                    return
+                if resp.status_code != 200:
+                    st.error(f"Force unlock failed ({resp.status_code}): {resp.text}")
+                    return
+                st.success("Lock cleared. You can click *Sync now* again.")
+                st.rerun()
+
 
 def _threshold_sliders() -> tuple[float, float]:
     with st.sidebar:
