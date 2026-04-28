@@ -1,4 +1,4 @@
-# Face Match — developer shortcuts.
+# VisageIQ — developer shortcuts.
 # Self-documenting: run `make` (or `make help`) to see every target.
 #
 # Windows users: run from Git Bash (it ships GNU make via MSYS) or
@@ -34,7 +34,7 @@ PIP   = $(VENV)/bin/pip
         compose-sync compose-shell psql redis-cli health check clean nuke
 
 help:  ## Show this help
-	@echo "Face Match — make targets"
+	@echo "VisageIQ — make targets"
 	@echo ""
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'

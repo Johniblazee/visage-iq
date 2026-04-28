@@ -79,7 +79,7 @@ async def lifespan(_: FastAPI):
         pool.close()
 
 
-app = FastAPI(title="Face Match API", lifespan=lifespan)
+app = FastAPI(title="VisageIQ API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

@@ -255,8 +255,8 @@ def _run_match_and_cache(top_k: int) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Face Match", layout="wide")
-    st.title("Face Match")
+    st.set_page_config(page_title="VisageIQ", layout="wide")
+    st.title("VisageIQ")
     st.caption(
         "Decision-support tool. The human operator makes the final match call — "
         "the similarity score surfaces candidates; it does not decide identity."
