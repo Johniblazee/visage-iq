@@ -245,6 +245,7 @@ All configuration lives in `.env` (local) or service environment variables (Rend
 | `IMAGE_CACHE_TTL_SECONDS` | `86400` | Redis TTL for cached Drive image bytes |
 | `MATCH_RATE_LIMIT` | `30/minute` | Per-IP slowapi limit on `/match` |
 | `SYNC_RATE_LIMIT` | `5/minute` | Per-IP slowapi limit on `/sync` |
+| `WORKER_REPLICAS` | `1` | Number of `worker` containers `make up` / `make rebuild` will start. Each holds its own ~500 MB InsightFace instance. |
 | `ONNX_PROVIDERS` | `CPUExecutionProvider` | Comma-list. GPU: `CUDAExecutionProvider,CPUExecutionProvider` |
 | `API_BASE_URL` | `http://api:8000` | URL the UI uses to call the api |
 

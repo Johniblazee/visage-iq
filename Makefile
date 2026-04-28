@@ -78,9 +78,9 @@ init-db:  ## Apply scripts/init_db.sql against $$DATABASE_URL (sources .env)
 
 # --- Docker Compose --------------------------------------------------------
 
-up:  ## docker compose up --build -d (auto-detects GPU)
+up:  ## docker compose up --build -d (auto-detects GPU; honors WORKER_REPLICAS in .env)
 	@echo "Compose files: $(COMPOSE_FILES)"
-	$(COMPOSE) up --build -d
+	$(DOTENV) $(COMPOSE) up --build -d --scale worker=$${WORKER_REPLICAS:-1}
 
 down:  ## docker compose down
 	$(COMPOSE) down
@@ -100,9 +100,9 @@ logs-ui:  ## Tail logs for the ui container
 ps:  ## Show compose service status
 	$(COMPOSE) ps
 
-rebuild:  ## Force-rebuild and recreate all compose services (auto-detects GPU)
+rebuild:  ## Force-rebuild and recreate all compose services (auto-detects GPU; honors WORKER_REPLICAS)
 	@echo "Compose files: $(COMPOSE_FILES)"
-	$(COMPOSE) up --build --force-recreate -d
+	$(DOTENV) $(COMPOSE) up --build --force-recreate -d --scale worker=$${WORKER_REPLICAS:-1}
 
 compose-sync:  ## Run a foreground sync inside the api container
 	$(COMPOSE) run --rm api python scripts/enroll.py
