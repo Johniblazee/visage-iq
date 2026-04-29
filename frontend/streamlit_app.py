@@ -8,7 +8,7 @@ import requests
 import streamlit as st
 from PIL import Image, ImageDraw, ImageOps
 
-from _shared import render_active_sync_panel
+from _shared import render_active_sync_panel, render_worker_panel
 
 # Register HEIF/HEIC support so PIL.Image.open can decode iPhone photos.
 pillow_heif.register_heif_opener()
@@ -284,6 +284,7 @@ def main() -> None:
 
     _sidebar_status()
     _sync_section()
+    render_worker_panel()
     render_active_sync_panel()
     match_t, review_t = _threshold_sliders()
     top_k = st.sidebar.slider("Top K candidates", 1, FETCH_TOP_K, 3)

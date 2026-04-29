@@ -28,7 +28,7 @@ from backend.embedding import (
     get_app,
 )
 from backend.gdrive import DriveError, download_bytes, get_metadata
-from backend.queue import enqueue_sync, fetch_job
+from backend.queue import enqueue_retry, enqueue_sync, fetch_job
 from backend import analytics
 from backend.schemas import (
     AnalyticsSummary,
@@ -36,9 +36,12 @@ from backend.schemas import (
     FileStatusPage,
     HealthResponse,
     MatchResponse,
+    RetryEnqueueResponse,
+    RetryRequest,
     SyncEnqueueResponse,
     SyncJobStatus,
     Verdict,
+    WorkerStatus,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -221,12 +224,56 @@ def force_unlock(request: Request) -> dict:
 
     Use only when you're sure no sync is actually running.
     """
-    from backend.sync import SYNC_LOCK_NAME
+    from backend.sync import SYNC_LOCK_NAME, SYNC_RETRY_LOCK_NAME
 
     unlock(SYNC_LOCK_NAME)
+    unlock(SYNC_RETRY_LOCK_NAME)
     clear_active_sync()
-    logger.warning("force-unlock requested: lock:sync and sync:active_job_id cleared")
+    logger.warning(
+        "force-unlock requested: lock:sync, lock:retry and sync:active_job_id cleared"
+    )
     return {"cleared": True}
+
+
+@app.post("/sync/retry", response_model=RetryEnqueueResponse)
+@limiter.limit(settings.sync_rate_limit)
+def trigger_retry(request: Request, body: RetryRequest) -> RetryEnqueueResponse:
+    """Re-run the embedding pipeline for an explicit list of Drive file IDs.
+
+    Use to recover files previously recorded as `no_face`, `invalid_image`,
+    or `drive_error` in `file_status`. Skips the Drive walk; one Drive
+    metadata round-trip per file. Holds its own lock (`lock:retry`).
+    """
+    job_id = enqueue_retry(body.file_ids)
+    return RetryEnqueueResponse(job_id=job_id, count=len(body.file_ids))
+
+
+@app.get("/worker/status", response_model=WorkerStatus)
+def worker_status() -> WorkerStatus:
+    from rq.suspension import is_suspended
+
+    return WorkerStatus(suspended=bool(is_suspended(get_redis())))
+
+
+@app.post("/worker/pause", response_model=WorkerStatus)
+@limiter.limit("10/minute")
+def worker_pause(request: Request) -> WorkerStatus:
+    """Suspend RQ workers — no new jobs are dequeued, in-flight jobs finish."""
+    from rq.suspension import suspend
+
+    suspend(get_redis())
+    logger.info("worker pause requested: rq:suspended set")
+    return WorkerStatus(suspended=True)
+
+
+@app.post("/worker/resume", response_model=WorkerStatus)
+@limiter.limit("10/minute")
+def worker_resume(request: Request) -> WorkerStatus:
+    from rq.suspension import resume
+
+    resume(get_redis())
+    logger.info("worker resume requested: rq:suspended cleared")
+    return WorkerStatus(suspended=False)
 
 
 @app.get("/sync/{job_id}", response_model=SyncJobStatus)

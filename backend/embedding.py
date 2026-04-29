@@ -48,16 +48,21 @@ _ROTATION_OPS = {
 def get_app() -> FaceAnalysis:
     global _app
     if _app is None:
+        modules = settings.insightface_modules_list
         logger.info(
-            "Loading InsightFace model '%s' (providers=%s). "
+            "Loading InsightFace model '%s' (providers=%s, modules=%s). "
             "First run downloads weights to ~/.insightface/models/",
             settings.insightface_model,
             settings.providers_list,
+            modules or "all",
         )
-        app = FaceAnalysis(
-            name=settings.insightface_model,
-            providers=settings.providers_list,
-        )
+        kwargs: dict = {
+            "name": settings.insightface_model,
+            "providers": settings.providers_list,
+        }
+        if modules is not None:
+            kwargs["allowed_modules"] = modules
+        app = FaceAnalysis(**kwargs)
         ctx_id = -1 if "CPUExecutionProvider" in settings.providers_list and len(settings.providers_list) == 1 else 0
         app.prepare(ctx_id=ctx_id, det_size=(settings.det_size, settings.det_size))
         _app = app
@@ -154,3 +159,17 @@ def embed(image_bytes: bytes) -> EmbeddingResult:
         face_count=count,
         rotation=rotation,
     )
+
+
+def _embed_worker_init() -> None:
+    """ProcessPoolExecutor initializer — warms InsightFace once per subprocess.
+
+    Without this, every submit() would lazily reload ~300 MB of model weights
+    on first call inside that subprocess, defeating the whole point of pooling.
+    """
+    get_app()
+
+
+def embed_for_pool(image_bytes: bytes) -> EmbeddingResult:
+    """Picklable entry point for ProcessPoolExecutor.submit()."""
+    return embed(image_bytes)

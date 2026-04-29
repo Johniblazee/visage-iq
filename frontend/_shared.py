@@ -88,3 +88,51 @@ def render_active_sync_panel() -> None:
     """Public entry point — wraps the fragment inside the sidebar context."""
     with st.sidebar:
         _render_active_sync_fragment()
+
+
+def _fetch_worker_status() -> bool | None:
+    try:
+        resp = requests.get(f"{API_BASE_URL}/worker/status", timeout=3)
+        if resp.status_code == 200:
+            return bool(resp.json().get("suspended", False))
+    except requests.RequestException:
+        return None
+    return None
+
+
+def render_worker_panel() -> None:
+    """Sidebar widget — shows worker run/pause state with a toggle button.
+
+    Hits POST /worker/{pause,resume}; the change is global (all RQ workers
+    pause). In-flight jobs finish their current file before idling.
+    """
+    with st.sidebar:
+        st.subheader("Worker")
+        suspended = _fetch_worker_status()
+        if suspended is None:
+            st.caption("(status unavailable)")
+            return
+        if suspended:
+            st.markdown(
+                "<div style='color:#ca8a04'><b>⏸ Paused</b> — no new jobs are dequeued.</div>",
+                unsafe_allow_html=True,
+            )
+            if st.button("▶ Resume worker"):
+                try:
+                    requests.post(f"{API_BASE_URL}/worker/resume", timeout=5)
+                except requests.RequestException as exc:
+                    st.error(f"Could not reach API: {exc}")
+                    return
+                st.rerun()
+        else:
+            st.markdown(
+                "<div style='color:#16a34a'><b>▶ Running</b></div>",
+                unsafe_allow_html=True,
+            )
+            if st.button("⏸ Pause worker"):
+                try:
+                    requests.post(f"{API_BASE_URL}/worker/pause", timeout=5)
+                except requests.RequestException as exc:
+                    st.error(f"Could not reach API: {exc}")
+                    return
+                st.rerun()

@@ -13,7 +13,7 @@ _FRONTEND_DIR = str(Path(__file__).resolve().parent.parent)
 if _FRONTEND_DIR not in sys.path:
     sys.path.insert(0, _FRONTEND_DIR)
 
-from _shared import render_active_sync_panel  # noqa: E402
+from _shared import render_active_sync_panel, render_worker_panel  # noqa: E402
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://api:8000")
 
@@ -92,6 +92,7 @@ def _matrix_table(rows: list[dict]) -> pd.DataFrame:
 
 def main() -> None:
     st.set_page_config(page_title="VisageIQ — Analytics", layout="wide")
+    render_worker_panel()
     render_active_sync_panel()  # sidebar widget; auto-hides if no sync running
 
     st.title("Sync Analytics")
@@ -197,6 +198,7 @@ def main() -> None:
     rows = page.get("rows", [])
     st.caption(f"{total:,} match(es). Showing {offset + 1}–{min(offset + page_size, total)}.")
 
+    page_file_ids: list[str] = []
     if rows:
         files_df = pd.DataFrame(rows)
         display_cols = [
@@ -219,7 +221,41 @@ def main() -> None:
         for col in ("reason", "rotation", "ext", "mime_type"):
             if col in view.columns:
                 view[col] = view[col].apply(lambda v: "" if v is None else v)
-        st.dataframe(view, hide_index=True, width="stretch")
+        page_file_ids = files_df["drive_file_id"].astype(str).tolist() \
+            if "drive_file_id" in files_df.columns else []
+
+        # Key embeds the filter+page so changing them resets the selection.
+        table_key = f"files_table:{sel_outcome}:{sel_ext}:{sel_q}:{page_size}:{offset}"
+        event = st.dataframe(
+            view, hide_index=True, width="stretch",
+            on_select="rerun", selection_mode="multi-row", key=table_key,
+        )
+        selected_idxs: list[int] = []
+        try:
+            selected_idxs = list(event.selection.rows)  # type: ignore[attr-defined]
+        except AttributeError:
+            selected_idxs = list(
+                (st.session_state.get(table_key) or {})
+                .get("selection", {})
+                .get("rows", [])
+            )
+        selected_ids = [page_file_ids[i] for i in selected_idxs if 0 <= i < len(page_file_ids)]
+
+        retry_cols = st.columns([1.4, 1.4, 5])
+        with retry_cols[0]:
+            if st.button(
+                f"🔁 Retry selected ({len(selected_ids)})",
+                disabled=not selected_ids,
+                help="Re-run the embedding pipeline for the rows checked above.",
+            ):
+                _trigger_retry(selected_ids)
+        with retry_cols[1]:
+            if st.button(
+                f"🔁 Retry all on page ({len(page_file_ids)})",
+                disabled=not page_file_ids,
+                help="Re-run for every row on this page (after current filters).",
+            ):
+                _trigger_retry(page_file_ids)
 
     nav = st.columns([1, 1, 6])
     with nav[0]:
@@ -230,6 +266,33 @@ def main() -> None:
         if st.button("Next ▶", disabled=offset + page_size >= total):
             st.session_state[page_key] = offset + page_size
             st.rerun()
+
+
+def _trigger_retry(file_ids: list[str]) -> None:
+    if not file_ids:
+        return
+    try:
+        resp = requests.post(
+            f"{API_BASE_URL}/sync/retry",
+            json={"file_ids": file_ids},
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        st.error(f"Could not reach API: {exc}")
+        return
+    if resp.status_code != 200:
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except ValueError:
+            detail = resp.text
+        st.error(f"Retry enqueue failed ({resp.status_code}): {detail}")
+        return
+    body = resp.json()
+    st.success(
+        f"Retry queued for {body.get('count', len(file_ids))} file(s) — "
+        f"job `{body['job_id'][:8]}`. Watch the *Active Sync* panel."
+    )
+    st.rerun()
 
 
 if __name__ == "__main__":

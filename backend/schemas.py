@@ -39,6 +39,20 @@ class SyncEnqueueResponse(BaseModel):
     status: str = "queued"
 
 
+class RetryRequest(BaseModel):
+    file_ids: list[str] = Field(min_length=1, max_length=1000)
+
+
+class RetryEnqueueResponse(BaseModel):
+    job_id: str
+    count: int
+    status: str = "queued"
+
+
+class WorkerStatus(BaseModel):
+    suspended: bool
+
+
 class SyncJobStatus(BaseModel):
     job_id: str
     status: str

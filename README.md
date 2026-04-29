@@ -247,6 +247,11 @@ All configuration lives in `.env` (local) or service environment variables (Rend
 | `SYNC_RATE_LIMIT` | `5/minute` | Per-IP slowapi limit on `/sync` |
 | `WORKER_REPLICAS` | `1` | Number of `worker` containers `make up` / `make rebuild` will start. Each holds its own ~500 MB InsightFace instance. |
 | `ONNX_PROVIDERS` | `CPUExecutionProvider` | Comma-list. GPU: `CUDAExecutionProvider,CPUExecutionProvider` |
+| `INSIGHTFACE_MODULES` | `detection,recognition` | Comma list of InsightFace sub-models to load. Default skips genderage / landmarks for ~30–40% lower RAM. Empty (or list all five) restores the full loadout. |
+| `EMBED_WORKERS` | `1` | Per-sync embed parallelism via `ProcessPoolExecutor`. CPU recommendation: `3` (4-core), `7` (8-core). **GPU MUST stay at `1`** — multiple processes oversubscribe one GPU. |
+| `EMBED_WORKER_MAX_INFLIGHT` | `8` | Bounded inflight queue for the embed pool. Caps RAM regardless of file count. |
+| `DOWNLOAD_WORKERS` | `4` | `ThreadPoolExecutor` size for Drive-download prefetch. Overlaps I/O with embedding — the main GPU throughput win. Set `1` to disable. |
+| `DOWNLOAD_MAX_INFLIGHT` | `8` | Cap on simultaneously prefetched downloads (≈ `N × image_size` bytes buffered). |
 | `API_BASE_URL` | `http://api:8000` | URL the UI uses to call the api |
 
 ---
@@ -352,7 +357,11 @@ requirements.txt
 | `POST` | `/match` | Upload an image, get top-K candidates with `query_rotation` + `enrolled_count` |
 | `POST` | `/sync` | Enqueue a Drive→DB sync job |
 | `GET` | `/sync/{job_id}` | Poll a sync job's status — includes live `progress` (`phase`/`current`/`total`/counters; `phase=skipped` when lock-blocked) |
-| `POST` | `/sync/force-unlock` | Emergency: clears `lock:sync` + `sync:active_job_id` if a previous sync died holding the lock. Rate-limited 5/min. |
+| `POST` | `/sync/force-unlock` | Emergency: clears `lock:sync` + `lock:retry` + `sync:active_job_id` if a previous job died holding a lock. Rate-limited 5/min. |
+| `POST` | `/sync/retry` | Re-run the embedding pipeline for an explicit list of `drive_file_id`s (1–1000). Skips the Drive walk; holds its own `lock:retry`. |
+| `GET` | `/worker/status` | Whether RQ workers are currently suspended (`{"suspended": bool}`) |
+| `POST` | `/worker/pause` | Suspend RQ workers — no new jobs dequeued; in-flight jobs finish |
+| `POST` | `/worker/resume` | Clear the suspension flag |
 | `GET` | `/image/{file_id}` | Drive-image proxy (Redis-cached) for thumbnails |
 | `GET` | `/analytics/summary` | Outcome counts, extension distribution, outcome×ext matrix |
 | `GET` | `/analytics/files` | Paginated `file_status` rows with `outcome` / `ext` / `q` filters |

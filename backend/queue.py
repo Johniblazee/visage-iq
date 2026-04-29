@@ -25,5 +25,15 @@ def enqueue_sync(prune: bool = True) -> str:
     return job.id
 
 
+def enqueue_retry(file_ids: list[str]) -> str:
+    job = get_queue().enqueue(
+        "backend.sync.run_retry_job",
+        file_ids,
+        job_timeout=SYNC_JOB_TIMEOUT,
+    )
+    set_active_sync(job.id)
+    return job.id
+
+
 def fetch_job(job_id: str):
     return get_queue().fetch_job(job_id)
