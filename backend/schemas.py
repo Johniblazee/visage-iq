@@ -22,6 +22,20 @@ class MatchResponse(BaseModel):
     candidates: list[Candidate]
 
 
+class FaceMatchResult(BaseModel):
+    face_index: int
+    bbox: list[int]
+    det_score: float
+    candidates: list[Candidate]
+
+
+class MatchManyResponse(BaseModel):
+    query_face_count: int
+    query_rotation: int
+    enrolled_count: int
+    faces: list[FaceMatchResult]
+
+
 class HealthResponse(BaseModel):
     db: str
     redis: str

@@ -39,6 +39,10 @@ def _draw_bbox(image: Image.Image, bbox: list[int]) -> Image.Image:
     return annotated
 
 
+def _face_page_key() -> str:
+    return "selected_face_index"
+
+
 # api uses cv2 clockwise rotations; PIL rotate is CCW. Map api degrees -> PIL angle.
 _PIL_ROTATIONS = {0: 0, 90: -90, 180: 180, 270: 90}
 
@@ -106,9 +110,9 @@ def _fetch_health() -> dict | None:
     return None
 
 
-def _do_match(image_bytes: bytes, name: str, content_type: str | None, top_k: int):
+def _do_match_many(image_bytes: bytes, name: str, content_type: str | None, top_k: int):
     return requests.post(
-        f"{API_BASE_URL}/match",
+        f"{API_BASE_URL}/match-many",
         files={"file": (name, image_bytes, content_type or "image/jpeg")},
         params={"top_k": top_k},
         timeout=60,
@@ -251,7 +255,7 @@ def _threshold_sliders() -> tuple[float, float]:
 def _run_match_and_cache() -> None:
     with st.spinner("Detecting face and searching..."):
         try:
-            resp = _do_match(
+            resp = _do_match_many(
                 st.session_state["upload_bytes"],
                 st.session_state["upload_name"],
                 st.session_state.get("upload_type"),
@@ -269,6 +273,7 @@ def _run_match_and_cache() -> None:
         st.error(f"API error ({resp.status_code}): {detail}")
         st.session_state["match_response"] = None
         return
+    st.session_state[_face_page_key()] = 0
     st.session_state["match_response"] = resp.json()
 
 
@@ -303,6 +308,7 @@ def main() -> None:
             st.session_state["upload_name"] = uploaded.name
             st.session_state["upload_type"] = uploaded.type
             st.session_state["match_response"] = None  # invalidate prior result
+            st.session_state[_face_page_key()] = 0
 
     has_upload = "upload_bytes" in st.session_state
 
@@ -322,7 +328,10 @@ def main() -> None:
         )
 
     if clear:
-        for key in ("upload_hash", "upload_bytes", "upload_name", "upload_type", "match_response"):
+        for key in (
+            "upload_hash", "upload_bytes", "upload_name", "upload_type",
+            "match_response", _face_page_key(),
+        ):
             st.session_state.pop(key, None)
         st.rerun()
 
@@ -340,16 +349,26 @@ def main() -> None:
         return
 
     left, right = st.columns([1, 1])
+    faces = data.get("faces", [])
+    face_count = len(faces)
+    selected_face_idx = min(st.session_state.get(_face_page_key(), 0), max(0, face_count - 1))
+    st.session_state[_face_page_key()] = selected_face_idx
+    selected_face = faces[selected_face_idx] if faces else None
+
     with left:
         st.subheader("Query")
         rotation = data.get("query_rotation", 0)
         img = _prepare_query_image(st.session_state["upload_bytes"], rotation)
-        st.image(_draw_bbox(img, data["query_face_bbox"]), width="stretch")
+        st.image(_draw_bbox(img, selected_face["bbox"]) if selected_face else img, width="stretch")
         rotation_note = f" · Rotation applied: {rotation}°" if rotation else ""
         st.caption(
-            f"Detection score: {data['query_det_score']:.3f} · "
             f"Faces found: {data['query_face_count']}{rotation_note}"
         )
+        if selected_face:
+            st.caption(
+                f"Showing face {selected_face_idx + 1} of {face_count} · "
+                f"Detection score: {selected_face['det_score']:.3f}"
+            )
 
     with right:
         st.subheader("Top candidates")
@@ -366,7 +385,20 @@ def main() -> None:
                 f"REVIEW ≥ {review_t:.2f}."
             )
 
-        candidates = data["candidates"][:top_k]
+        if face_count > 1:
+            pager = st.columns([1, 2, 1])
+            with pager[0]:
+                if st.button("← Prev face", disabled=selected_face_idx == 0):
+                    st.session_state[_face_page_key()] = selected_face_idx - 1
+                    st.rerun()
+            with pager[1]:
+                st.caption(f"Face {selected_face_idx + 1} of {face_count}")
+            with pager[2]:
+                if st.button("Next face →", disabled=selected_face_idx >= face_count - 1):
+                    st.session_state[_face_page_key()] = selected_face_idx + 1
+                    st.rerun()
+
+        candidates = (selected_face or {}).get("candidates", [])[:top_k]
         if candidates:
             top_sim = candidates[0]["similarity"]
             top_pct = max(0.0, top_sim) * 100.0

@@ -25,6 +25,7 @@ from backend.embedding import (
     InvalidImage,
     NoFaceDetected,
     embed,
+    embed_many,
     get_app,
 )
 from backend.gdrive import DriveError, download_bytes, get_metadata
@@ -34,8 +35,10 @@ from backend.schemas import (
     AnalyticsSummary,
     Candidate,
     FileStatusPage,
+    FaceMatchResult,
     HealthResponse,
     MatchResponse,
+    MatchManyResponse,
     RetryEnqueueResponse,
     RetryRequest,
     SyncEnqueueResponse,
@@ -202,6 +205,40 @@ async def match(
         query_rotation=result.rotation,
         enrolled_count=_enrolled_count(),
         candidates=candidates,
+    )
+
+
+@app.post("/match-many", response_model=MatchManyResponse)
+@limiter.limit(settings.match_rate_limit)
+async def match_many(
+    request: Request,
+    file: UploadFile = File(...),
+    top_k: int = Query(default=settings.top_k, ge=1, le=50),
+) -> MatchManyResponse:
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    try:
+        result = embed_many(image_bytes)
+    except NoFaceDetected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except InvalidImage as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return MatchManyResponse(
+        query_face_count=len(result.faces),
+        query_rotation=result.rotation,
+        enrolled_count=_enrolled_count(),
+        faces=[
+            FaceMatchResult(
+                face_index=idx,
+                bbox=face.bbox,
+                det_score=face.det_score,
+                candidates=_search(face, top_k),
+            )
+            for idx, face in enumerate(result.faces)
+        ],
     )
 
 

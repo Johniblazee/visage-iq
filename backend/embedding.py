@@ -44,6 +44,12 @@ class EmbeddingResult:
     rotation: int  # 0 / 90 / 180 / 270 — degrees applied to find this face
 
 
+@dataclass
+class MultiEmbeddingResult:
+    faces: list[EmbeddingResult]
+    rotation: int
+
+
 _app: FaceAnalysis | None = None
 _sync_app: FaceAnalysis | None = None
 
@@ -205,6 +211,70 @@ def embed(image_bytes: bytes, profile: str = "match") -> EmbeddingResult:
         face_count=count,
         rotation=rotation,
     )
+
+
+def embed_many(image_bytes: bytes, profile: str = "match") -> MultiEmbeddingResult:
+    """Detect + embed all faces from one chosen rotation.
+
+    We keep rotation semantics aligned with the single-face path: try the same
+    rotation strategy, then return every face from the winning rotation while
+    preserving the per-face embeddings/bboxes.
+    """
+    base = _decode(image_bytes)
+    app = get_app(profile)
+    if profile == "sync":
+        early_exit = settings.sync_rotation_early_exit_score_value
+        mode = (settings.sync_rotation_mode_value or "fallback").lower()
+        rotation_enabled = settings.sync_rotation_enabled_value
+    else:
+        early_exit = settings.rotation_early_exit_score
+        mode = (settings.rotation_mode or "fallback").lower()
+        rotation_enabled = settings.rotation_enabled
+
+    if not rotation_enabled:
+        mode = "off"
+    if mode not in ("off", "fallback", "always"):
+        mode = "fallback"
+
+    rotations = (0,) if mode == "off" else ROTATIONS
+    best: tuple[float, int, list[object]] | None = None
+
+    for deg in rotations:
+        rotated = _rotate(base, deg)
+        faces = app.get(rotated)
+        if not faces:
+            continue
+
+        score = max(float(face.det_score) for face in faces)
+        if best is None or score > best[0]:
+            best = (score, deg, list(faces))
+
+        if mode == "fallback":
+            break
+        if mode == "always" and score >= early_exit:
+            break
+
+    if best is None:
+        if mode == "off":
+            msg = "No face detected (rotation mode=off, only 0° tried)"
+        elif mode == "fallback":
+            msg = "No face detected at 0° or any fallback rotation (90/180/270)"
+        else:
+            msg = "No face detected at any of 0/90/180/270 rotations"
+        raise NoFaceDetected(msg)
+
+    _, rotation, faces = best
+    results = [
+        EmbeddingResult(
+            embedding=np.asarray(face.normed_embedding, dtype=np.float32),
+            bbox=[int(v) for v in face.bbox],
+            det_score=float(face.det_score),
+            face_count=len(faces),
+            rotation=rotation,
+        )
+        for face in sorted(faces, key=lambda face: float(face.bbox[0]))
+    ]
+    return MultiEmbeddingResult(faces=results, rotation=rotation)
 
 
 def _embed_worker_init() -> None:
