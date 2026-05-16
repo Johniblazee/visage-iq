@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 
@@ -13,9 +12,11 @@ _FRONTEND_DIR = str(Path(__file__).resolve().parent.parent)
 if _FRONTEND_DIR not in sys.path:
     sys.path.insert(0, _FRONTEND_DIR)
 
-from _shared import render_active_sync_panel, render_worker_panel  # noqa: E402
-
-API_BASE_URL = os.getenv("API_BASE_URL", "http://api:8000")
+from _shared import (  # noqa: E402
+    API_BASE_URL,
+    render_active_sync_panel,
+    render_worker_panel,
+)
 
 OUTCOME_LABELS = {
     "enrolled": "Enrolled",
@@ -37,17 +38,15 @@ OUTCOME_COLORS = {
 
 
 @st.cache_data(ttl=10, show_spinner=False)
-def _fetch_summary() -> dict | None:
-    try:
-        resp = requests.get(f"{API_BASE_URL}/analytics/summary", timeout=15)
-        if resp.status_code == 200:
-            return resp.json()
-    except requests.RequestException:
-        return None
-    return None
+def _fetch_summary() -> dict:
+    # Raise (don't return None) on failure: st.cache_data does not cache a
+    # call that raises, so a transient outage no longer sticks for the TTL.
+    resp = requests.get(f"{API_BASE_URL}/analytics/summary", timeout=15)
+    resp.raise_for_status()
+    return resp.json()
 
 
-def _fetch_files(outcome: str | None, ext: str | None, q: str | None, limit: int, offset: int) -> dict | None:
+def _fetch_files(outcome: str | None, ext: str | None, q: str | None, limit: int, offset: int) -> dict:
     params = {"limit": limit, "offset": offset}
     if outcome:
         params["outcome"] = outcome
@@ -55,13 +54,24 @@ def _fetch_files(outcome: str | None, ext: str | None, q: str | None, limit: int
         params["ext"] = ext
     if q:
         params["q"] = q
-    try:
-        resp = requests.get(f"{API_BASE_URL}/analytics/files", params=params, timeout=20)
-        if resp.status_code == 200:
-            return resp.json()
-    except requests.RequestException:
-        return None
-    return None
+    resp = requests.get(f"{API_BASE_URL}/analytics/files", params=params, timeout=20)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _render_api_error(exc: requests.RequestException, endpoint: str) -> None:
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        st.error(
+            f"`{endpoint}` returned {exc.response.status_code} from "
+            f"{API_BASE_URL}. The API is reachable but the endpoint errored "
+            "(often a DB/schema issue) — check API logs."
+        )
+    else:
+        st.warning(
+            f"Couldn't reach the API at {API_BASE_URL} ({exc.__class__.__name__}). "
+            "If the Worker panel shows a status, this is usually transient and "
+            "clears automatically on the next refresh."
+        )
 
 
 def _outcome_table(by_outcome: dict[str, int]) -> pd.DataFrame:
@@ -101,9 +111,10 @@ def main() -> None:
         "(values cached client-side)."
     )
 
-    summary = _fetch_summary()
-    if summary is None:
-        st.error(f"API unreachable at `{API_BASE_URL}`.")
+    try:
+        summary = _fetch_summary()
+    except requests.RequestException as exc:
+        _render_api_error(exc, "/analytics/summary")
         return
 
     totals = summary.get("totals") or {}
@@ -182,16 +193,16 @@ def main() -> None:
     page_key = f"analytics_offset:{sel_outcome}:{sel_ext}:{sel_q}:{page_size}"
     offset = int(st.session_state.get(page_key, 0))
 
-    page = _fetch_files(
-        outcome=None if sel_outcome == "(any)" else sel_outcome,
-        ext=None if sel_ext in ("(any)", "(none)") else sel_ext,
-        q=sel_q.strip() or None,
-        limit=page_size,
-        offset=offset,
-    )
-
-    if page is None:
-        st.error("Could not fetch file list.")
+    try:
+        page = _fetch_files(
+            outcome=None if sel_outcome == "(any)" else sel_outcome,
+            ext=None if sel_ext in ("(any)", "(none)") else sel_ext,
+            q=sel_q.strip() or None,
+            limit=page_size,
+            offset=offset,
+        )
+    except requests.RequestException as exc:
+        _render_api_error(exc, "/analytics/files")
         return
 
     total = page.get("total", 0)
@@ -218,7 +229,7 @@ def main() -> None:
             view["det_score"] = view["det_score"].apply(
                 lambda v: f"{v:.3f}" if isinstance(v, (int, float)) else ""
             )
-        for col in ("reason", "rotation", "ext", "mime_type"):
+        for col in ("reason", "rotation", "ext"):
             if col in view.columns:
                 view[col] = view[col].apply(lambda v: "" if v is None else v)
         page_file_ids = files_df["drive_file_id"].astype(str).tolist() \

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 FOLDER_MIME = "application/vnd.google-apps.folder"
-LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,thumbnailLink,parents)"
+LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime)"
 
 
 class DriveError(Exception):
@@ -30,7 +30,6 @@ class DriveFile:
     name: str
     mime_type: str
     modified_time: datetime | None
-    thumbnail_link: str | None
 
 
 def _load_credentials():
@@ -110,7 +109,6 @@ def list_image_files(folder_id: str | None = None, recursive: bool | None = None
                 name=item["name"],
                 mime_type=mime,
                 modified_time=_parse_dt(item.get("modifiedTime")),
-                thumbnail_link=item.get("thumbnailLink"),
             )
 
 
@@ -135,7 +133,7 @@ def get_metadata(file_id: str) -> DriveFile:
             svc.files()
             .get(
                 fileId=file_id,
-                fields="id,name,mimeType,modifiedTime,thumbnailLink",
+                fields="id,name,mimeType,modifiedTime",
                 supportsAllDrives=True,
             )
             .execute()
@@ -147,5 +145,4 @@ def get_metadata(file_id: str) -> DriveFile:
         name=item["name"],
         mime_type=item["mimeType"],
         modified_time=_parse_dt(item.get("modifiedTime")),
-        thumbnail_link=item.get("thumbnailLink"),
     )

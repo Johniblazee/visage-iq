@@ -64,12 +64,9 @@ class Settings(BaseSettings):
     sync_batch_commit: int = 50
 
     image_cache_ttl_seconds: int = 86400
-    listing_cache_ttl_seconds: int = 300
 
     match_rate_limit: str = "30/minute"
     sync_rate_limit: str = "5/minute"
-
-    api_base_url: str = "http://api:8000"
 
     @property
     def providers_list(self) -> list[str]:

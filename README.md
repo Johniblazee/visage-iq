@@ -357,7 +357,7 @@ requirements.txt
 | `POST` | `/match` | Upload an image, get top-K candidates with `query_rotation` + `enrolled_count` |
 | `POST` | `/sync` | Enqueue a Drive→DB sync job |
 | `GET` | `/sync/{job_id}` | Poll a sync job's status — includes live `progress` (`phase`/`current`/`total`/counters; `phase=skipped` when lock-blocked) |
-| `POST` | `/sync/force-unlock` | Emergency: clears `lock:sync` + `lock:retry` + `sync:active_job_id` if a previous job died holding a lock. Rate-limited 5/min. |
+| `POST` | `/sync/force-unlock` | Manual override: clears `lock:sync` + `lock:retry` + `sync:active_job_id`. Rarely needed — locks use a short TTL + heartbeat and the next sync auto-recovers a dead holder within ~2 min. Rate-limited 5/min. |
 | `POST` | `/sync/retry` | Re-run the embedding pipeline for an explicit list of `drive_file_id`s (1–1000). Skips the Drive walk; holds its own `lock:retry`. |
 | `GET` | `/worker/status` | Whether RQ workers are currently suspended (`{"suspended": bool}`) |
 | `POST` | `/worker/pause` | Suspend RQ workers — no new jobs dequeued; in-flight jobs finish |
@@ -381,7 +381,7 @@ requirements.txt
 | `DriveError: ... 403` | Folder not shared with the SA | Share the Drive folder with the SA email, role **Viewer** |
 | `extension "vector" is not available` | Wrong Postgres image | Use `pgvector/pgvector:pg16`, never plain `postgres:16` |
 | Sync jobs stuck `queued` | No worker is consuming the queue | Confirm worker container/service is running (`make ps` / Render dashboard) |
-| Worker logs `[sync …] already in progress; skipping` and exits in ~2s on every retry; worker memory stays at ~28 MB | Stuck Redis lock — a previous worker died before its `finally` block could run `unlock(SYNC_LOCK_NAME)`. The `lock:sync` key has up to a 1-hour TTL. | Sidebar → **Drive Sync** → expand **Force unlock (advanced)** → click **⚠ Force unlock**. Or manually: `make redis-cli` → `DEL lock:sync` + `DEL sync:active_job_id`. Then click **Sync now** again. |
+| Worker logs `[sync …] already in progress; skipping` and exits in ~2s on every retry | Stuck Redis lock from a crashed worker. **Now mostly self-healing**: `lock:sync` uses a short TTL (120s) with a heartbeat refresh, and the next sync auto-recovers when it detects the holder job is dead — so it clears within ~2 min on its own. | Wait ~2 min for auto-recovery. To clear it immediately: sidebar → **Drive Sync** → **Force unlock (advanced)**, or `make redis-cli` → `DEL lock:sync` + `DEL sync:active_job_id`. If it recurs, the worker is crashing mid-sync — see HOWTO "native abort". |
 | `429 rate limit exceeded` | slowapi cap hit | Bump `MATCH_RATE_LIMIT` / `SYNC_RATE_LIMIT` in `.env` |
 | Render cold start (~15s) | Starter plan suspended after idle | Bump to Standard plan, or accept it |
 | Thumbnail returns 502 | api couldn't fetch from Drive | Check api logs; usually a permission revoke or deleted file |

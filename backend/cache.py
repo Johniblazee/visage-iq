@@ -33,10 +33,6 @@ def set_image(file_id: str, modified_time: str | None, data: bytes) -> None:
     )
 
 
-def lock(name: str, ttl: int = 60) -> bool:
-    return bool(get_redis().set(f"lock:{name}", b"1", nx=True, ex=ttl))
-
-
 def unlock(name: str) -> None:
     get_redis().delete(f"lock:{name}")
 

@@ -3,7 +3,6 @@ import io
 import logging
 import sys
 from dataclasses import dataclass
-from time import perf_counter
 
 import cv2
 import numpy as np
@@ -220,9 +219,3 @@ def _embed_worker_init() -> None:
 def embed_for_pool(image_bytes: bytes) -> EmbeddingResult:
     """Picklable entry point for ProcessPoolExecutor.submit()."""
     return embed(image_bytes, profile="sync")
-
-
-def embed_timed(image_bytes: bytes, profile: str = "match") -> tuple[EmbeddingResult, float]:
-    started = perf_counter()
-    result = embed(image_bytes, profile=profile)
-    return result, perf_counter() - started

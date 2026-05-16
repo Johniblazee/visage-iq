@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -215,12 +215,13 @@ def trigger_sync(request: Request, prune: bool = Query(default=True)) -> SyncEnq
 @app.post("/sync/force-unlock")
 @limiter.limit("5/minute")
 def force_unlock(request: Request) -> dict:
-    """Release a stuck sync lock.
+    """Manually clear the sync/retry locks and active-sync marker.
 
-    `run_sync()` acquires `lock:sync` and is supposed to release it in its
-    `finally` block. If the worker dies before reaching `finally` (OOM, kill,
-    container restart) the lock can sit untouched until its 1-hour TTL expires
-    and every new sync skips with "already in progress."
+    Rarely needed. The sync lock now uses a short TTL with a heartbeat
+    refresh, and the next sync auto-recovers a stale lock when it detects the
+    recorded holder job is dead — so a crashed worker self-heals within
+    ~2 minutes. This endpoint is the manual override for the impatient case
+    (clear it *now*) or if auto-recovery hasn't fired yet.
 
     Use only when you're sure no sync is actually running.
     """

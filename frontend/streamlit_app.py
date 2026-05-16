@@ -8,12 +8,10 @@ import requests
 import streamlit as st
 from PIL import Image, ImageDraw, ImageOps
 
-from _shared import render_active_sync_panel, render_worker_panel
+from _shared import API_BASE_URL, render_active_sync_panel, render_worker_panel
 
 # Register HEIF/HEIC support so PIL.Image.open can decode iPhone photos.
 pillow_heif.register_heif_opener()
-
-API_BASE_URL = os.getenv("API_BASE_URL", "http://api:8000")
 
 # We always fetch this many candidates from the API; the UI slider just slices.
 # This keeps the top_k slider instantaneous (no re-fetch needed).
@@ -250,7 +248,7 @@ def _threshold_sliders() -> tuple[float, float]:
     return match_t, review_t
 
 
-def _run_match_and_cache(top_k: int) -> None:
+def _run_match_and_cache() -> None:
     with st.spinner("Detecting face and searching..."):
         try:
             resp = _do_match(
@@ -335,7 +333,7 @@ def main() -> None:
     # Fetch from API only when we have no cached result, or when user clicks Search again.
     needs_fetch = retry or st.session_state.get("match_response") is None
     if needs_fetch:
-        _run_match_and_cache(top_k)
+        _run_match_and_cache()
 
     data = st.session_state.get("match_response")
     if not data:

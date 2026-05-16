@@ -22,10 +22,10 @@ from backend.embedding import (
     InvalidImage,
     NoFaceDetected,
     _embed_worker_init,
-    embed_timed,
+    embed,
     embed_for_pool,
 )
-from backend.gdrive import DriveError, get_metadata, list_image_files
+from backend.gdrive import DriveError, DriveFile, get_metadata, list_image_files
 from backend.queue import is_job_alive
 
 logger = logging.getLogger(__name__)
@@ -249,19 +249,22 @@ LISTING_WRITE_EVERY = 500     # write to job.meta every N files (listing)
 
 @dataclass
 class _WorkItem:
-    """A per-file unit of work yielded by `_iter_with_prefetch`.
-
-    Exactly one of `image_bytes` / `download_error` is set, unless `unchanged`
-    is True (in which case both are None — no download was issued).
-    """
+    """A per-file unit of work. Exactly one of `image_bytes` /
+    `download_error` is set, unless `unchanged` (both None — no download)."""
     drive_file: object
     is_new: bool
-    is_changed: bool
-    idx: int
     image_bytes: bytes | None = None
     download_error: DriveError | None = None
     download_seconds: float = 0.0
     unchanged: bool = False
+
+
+def _log_embedding_start(log_pos: str, item: "_WorkItem") -> None:
+    logger.info(
+        "%s embedding %s (%d bytes, mime=%s)",
+        log_pos, item.drive_file.name,
+        len(item.image_bytes or b""), item.drive_file.mime_type,
+    )
 
 
 def _classify(drive_file, existing: dict) -> tuple[bool, bool]:
@@ -280,17 +283,13 @@ def _iter_with_prefetch(
     drive_files: Iterable,
     existing: dict,
     seen: set[str],
-) -> Iterator[_WorkItem]:
-    """Yield `_WorkItem`s in submission order, with downloads prefetched.
+) -> Iterator[tuple[int, _WorkItem]]:
+    """Yield `(idx, _WorkItem)` in submission order, downloads prefetched.
 
     A `ThreadPoolExecutor` of size `settings.download_workers` pulls upcoming
-    Drive files in parallel with the consumer's embedding work — so the GPU
-    (or CPU embed pool) never sits idle waiting for the next download.
-
-    Unchanged files (already in `persons` with the same `modified_time`) skip
-    the download entirely — they're yielded with `unchanged=True`.
-
-    `settings.download_workers <= 1` returns a synchronous fallback.
+    Drive files in parallel with the consumer's embedding work. Unchanged
+    files skip the download (`unchanged=True`). `download_workers <= 1` is a
+    synchronous fallback.
     """
     workers = max(1, settings.download_workers)
     max_inflight = max(1, settings.download_max_inflight)
@@ -300,21 +299,18 @@ def _iter_with_prefetch(
             seen.add(drive_file.id)
             is_new, is_changed = _classify(drive_file, existing)
             if not is_new and not is_changed:
-                yield _WorkItem(drive_file, is_new, is_changed, idx, unchanged=True)
+                yield idx, _WorkItem(drive_file, is_new, unchanged=True)
                 continue
             result = _download_timed(drive_file.id)
-            yield _WorkItem(
-                drive_file,
-                is_new,
-                is_changed,
-                idx,
+            yield idx, _WorkItem(
+                drive_file, is_new,
                 image_bytes=result.image_bytes,
                 download_error=result.error,
                 download_seconds=result.elapsed_seconds,
             )
         return
 
-    inflight: deque[tuple[object, bool, bool, int, Future | None]] = deque()
+    inflight: deque[tuple[object, bool, int, Future | None]] = deque()
     files_iter = iter(enumerate(drive_files, start=1))
 
     def _enqueue_next(ex: ThreadPoolExecutor) -> bool:
@@ -325,26 +321,23 @@ def _iter_with_prefetch(
         seen.add(drive_file.id)
         is_new, is_changed = _classify(drive_file, existing)
         if not is_new and not is_changed:
-            inflight.append((drive_file, is_new, is_changed, idx, None))
+            inflight.append((drive_file, is_new, idx, None))
         else:
             fut = ex.submit(_download_timed, drive_file.id)
-            inflight.append((drive_file, is_new, is_changed, idx, fut))
+            inflight.append((drive_file, is_new, idx, fut))
         return True
 
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="dl") as ex:
         while len(inflight) < max_inflight and _enqueue_next(ex):
             pass
         while inflight:
-            drive_file, is_new, is_changed, idx, fut = inflight.popleft()
+            drive_file, is_new, idx, fut = inflight.popleft()
             if fut is None:
-                yield _WorkItem(drive_file, is_new, is_changed, idx, unchanged=True)
+                yield idx, _WorkItem(drive_file, is_new, unchanged=True)
             else:
                 result = fut.result()
-                yield _WorkItem(
-                    drive_file,
-                    is_new,
-                    is_changed,
-                    idx,
+                yield idx, _WorkItem(
+                    drive_file, is_new,
                     image_bytes=result.image_bytes,
                     download_error=result.error,
                     download_seconds=result.elapsed_seconds,
@@ -412,83 +405,24 @@ def _finalize_embed_outcome(
         _record_status(writes, drive_file, "embed_error", reason=str(exc)[:500])
 
 
-def _process_file_inline(
-    writes: _WriteBuffer,
-    drive_file,
-    *,
-    is_new: bool,
-    is_changed: bool,
-    stats: SyncStats,
-    log_pos: str,
-) -> None:
-    """Single-file pipeline (synchronous, no prefetch).
-
-    Used by `run_retry()` — small file lists where the prefetch overhead
-    isn't worth it. The main `run_sync()` path goes through
-    `_iter_with_prefetch()` instead so downloads overlap with embedding.
-
-    Mutates `stats` and writes one row to file_status (and to persons on
-    the enrolled path). Caller owns commit() cadence and progress writes.
-    """
-    if not is_new and not is_changed:
-        logger.info("%s skip: unchanged %s", log_pos, drive_file.name)
-        stats.skipped_unchanged += 1
-        _record_status(writes, drive_file, "unchanged")
-        return
-
-    download = _download_timed(drive_file.id)
-    stats.download_seconds += download.elapsed_seconds
-    if download.error is not None:
-        logger.warning(
-            "%s drive error: %s (%s) — %s",
-            log_pos, drive_file.name, drive_file.id, download.error,
-        )
-        stats.skipped_drive_error += 1
-        _record_status(writes, drive_file, "drive_error", reason=str(download.error)[:500])
-        return
-
-    logger.info(
-        "%s embedding %s (%d bytes, mime=%s)",
-        log_pos, drive_file.name,
-        len(download.image_bytes or b""), drive_file.mime_type,
-    )
-    started = perf_counter()
-    try:
-        result, _ = embed_timed(download.image_bytes, profile="sync")  # type: ignore[arg-type]
-    except (NoFaceDetected, InvalidImage, Exception) as exc:
-        stats.embed_seconds += perf_counter() - started
-        _finalize_embed_outcome(
-            writes, drive_file,
-            is_new=is_new, result_or_exc=exc, stats=stats, log_pos=log_pos,
-        )
-        return
-    stats.embed_seconds += perf_counter() - started
-
-    _finalize_embed_outcome(
-        writes, drive_file,
-        is_new=is_new, result_or_exc=result, stats=stats, log_pos=log_pos,
-    )
-
-
-def _apply_workitem_inline(
+def _handle_non_embed_outcome(
     writes: _WriteBuffer,
     item: _WorkItem,
     *,
     stats: SyncStats,
     log_pos: str,
-) -> None:
-    """Run the embed-and-finalize step for a prefetched WorkItem (no embed pool).
+) -> bool:
+    """Record the unchanged / drive_error outcomes that need no embedding.
 
-    Inputs:
-      * unchanged → record + return
-      * download_error → record drive_error + return
-      * image_bytes ready → embed inline, finalize via shared helper.
+    Returns True if the item was fully handled here (caller skips embed),
+    False if the item has bytes ready and should be embedded. Shared by the
+    inline path and the pooled loop so the branch logic lives once.
     """
     if item.unchanged:
         logger.info("%s skip: unchanged %s", log_pos, item.drive_file.name)
         stats.skipped_unchanged += 1
         _record_status(writes, item.drive_file, "unchanged")
-        return
+        return True
     stats.download_seconds += item.download_seconds
     if item.download_error is not None:
         logger.warning(
@@ -500,17 +434,25 @@ def _apply_workitem_inline(
             writes, item.drive_file, "drive_error",
             reason=str(item.download_error)[:500],
         )
+        return True
+    return False
+
+
+def _apply_workitem_inline(
+    writes: _WriteBuffer,
+    item: _WorkItem,
+    *,
+    stats: SyncStats,
+    log_pos: str,
+) -> None:
+    """Embed a WorkItem inline and finalize; non-embed outcomes short-circuit."""
+    if _handle_non_embed_outcome(writes, item, stats=stats, log_pos=log_pos):
         return
-    logger.info(
-        "%s embedding %s (%d bytes, mime=%s)",
-        log_pos, item.drive_file.name,
-        len(item.image_bytes or b""), item.drive_file.mime_type,
-    )
+    _log_embedding_start(log_pos, item)
     started = perf_counter()
     try:
-        result, _ = embed_timed(item.image_bytes, profile="sync")  # type: ignore[arg-type]
-        result_or_exc = result
-    except (NoFaceDetected, InvalidImage, Exception) as exc:
+        result_or_exc = embed(item.image_bytes, profile="sync")  # type: ignore[arg-type]
+    except Exception as exc:  # _finalize_embed_outcome classifies by type
         result_or_exc = exc
     stats.embed_seconds += perf_counter() - started
     _finalize_embed_outcome(
@@ -518,6 +460,28 @@ def _apply_workitem_inline(
         is_new=item.is_new, result_or_exc=result_or_exc,
         stats=stats, log_pos=log_pos,
     )
+
+
+def _process_file_inline(
+    writes: _WriteBuffer,
+    drive_file,
+    *,
+    is_new: bool,
+    is_changed: bool,
+    stats: SyncStats,
+    log_pos: str,
+) -> None:
+    """Synchronous single-file pipeline (no prefetch) — used by `run_retry`."""
+    if not is_new and not is_changed:
+        item = _WorkItem(drive_file=drive_file, is_new=is_new, unchanged=True)
+    else:
+        dl = _download_timed(drive_file.id)
+        item = _WorkItem(
+            drive_file=drive_file, is_new=is_new,
+            image_bytes=dl.image_bytes, download_error=dl.error,
+            download_seconds=dl.elapsed_seconds,
+        )
+    _apply_workitem_inline(writes, item, stats=stats, log_pos=log_pos)
 
 
 def _write_progress(job, stats: "SyncStats", idx: int, total: int) -> None:
@@ -603,10 +567,10 @@ def _run_inline_loop(
     win without oversubscribing the device.
     """
     writes = _WriteBuffer()
-    for item in _iter_with_prefetch(drive_files, existing, seen):
-        log_pos = f"{prefix} [{item.idx}/{max(total, item.idx)}]"
+    for idx, item in _iter_with_prefetch(drive_files, existing, seen):
+        log_pos = f"{prefix} [{idx}/{max(total, idx)}]"
         _apply_workitem_inline(writes, item, stats=stats, log_pos=log_pos)
-        _maybe_commit_and_progress(conn, cur, writes, stats, item.idx, total, prefix, job)
+        _maybe_commit_and_progress(conn, cur, writes, stats, idx, total, prefix, job)
     _flush_writes(cur, writes, stats)
 
 
@@ -642,7 +606,7 @@ def _run_pooled_loop(
         started = perf_counter()
         try:
             result_or_exc = future.result()
-        except (NoFaceDetected, InvalidImage, Exception) as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — finalizer classifies by type
             result_or_exc = exc
         stats.embed_seconds += perf_counter() - started
         _finalize_embed_outcome(
@@ -656,39 +620,17 @@ def _run_pooled_loop(
         max_workers=settings.embed_workers,
         initializer=_embed_worker_init,
     ) as ex:
-        for item in _iter_with_prefetch(drive_files, existing, seen):
-            log_pos = f"{prefix} [{item.idx}/{max(total, item.idx)}]"
+        for idx, item in _iter_with_prefetch(drive_files, existing, seen):
+            log_pos = f"{prefix} [{idx}/{max(total, idx)}]"
 
-            if item.unchanged:
-                logger.info("%s skip: unchanged %s", log_pos, item.drive_file.name)
-                stats.skipped_unchanged += 1
-                _record_status(writes, item.drive_file, "unchanged")
-                _maybe_commit_and_progress(conn, cur, writes, stats, item.idx, total, prefix, job)
+            if _handle_non_embed_outcome(writes, item, stats=stats, log_pos=log_pos):
+                _maybe_commit_and_progress(conn, cur, writes, stats, idx, total, prefix, job)
                 continue
 
-            if item.download_error is not None:
-                stats.download_seconds += item.download_seconds
-                logger.warning(
-                    "%s drive error: %s (%s) — %s",
-                    log_pos, item.drive_file.name, item.drive_file.id, item.download_error,
-                )
-                stats.skipped_drive_error += 1
-                _record_status(
-                    writes, item.drive_file, "drive_error",
-                    reason=str(item.download_error)[:500],
-                )
-                _maybe_commit_and_progress(conn, cur, writes, stats, item.idx, total, prefix, job)
-                continue
-
-            stats.download_seconds += item.download_seconds
-            logger.info(
-                "%s embedding %s (%d bytes, mime=%s)",
-                log_pos, item.drive_file.name,
-                len(item.image_bytes or b""), item.drive_file.mime_type,
-            )
+            _log_embedding_start(log_pos, item)
             inflight.append((
                 item.drive_file, item.is_new,
-                ex.submit(embed_for_pool, item.image_bytes), item.idx,
+                ex.submit(embed_for_pool, item.image_bytes), idx,
             ))
             while len(inflight) >= settings.embed_worker_max_inflight:
                 _drain_one_embed()
@@ -860,22 +802,16 @@ def run_retry(file_ids: list[str]) -> SyncStats:
                     try:
                         drive_file = get_metadata(file_id)
                     except DriveError as exc:
-                        # Synthesize a minimal stand-in so we still log a row in
-                        # file_status — same row format as the main sync's
-                        # drive_error path.
-                        @dataclass
-                        class _Stub:
-                            id: str
-                            name: str
-                            mime_type: str
-                            modified_time: datetime | None = None
-                        stub = _Stub(id=file_id, name=file_id, mime_type="")
-                        logger.warning("%s drive metadata error: %s — %s", pos, file_id, exc)
-                        stats.skipped_drive_error += 1
-                        _record_status(writes, stub, "drive_error", reason=str(exc)[:500])
-                        if idx % PROGRESS_WRITE_EVERY == 0 or idx == total:
-                            _flush_writes(cur, writes, stats)
-                            _write_progress(job, stats, idx, total)
+                        # Metadata lookup failed — route through the shared
+                        # drive_error path with a minimal stand-in DriveFile.
+                        item = _WorkItem(
+                            drive_file=DriveFile(file_id, file_id, "", None),
+                            is_new=False, download_error=exc,
+                        )
+                        _apply_workitem_inline(writes, item, stats=stats, log_pos=pos)
+                        _maybe_commit_and_progress(
+                            conn, cur, writes, stats, idx, total, prefix, job,
+                        )
                         continue
 
                     is_new = drive_file.id not in existing
@@ -886,19 +822,9 @@ def run_retry(file_ids: list[str]) -> SyncStats:
                         is_new=is_new, is_changed=True,
                         stats=stats, log_pos=pos,
                     )
-
-                    if (stats.new + stats.updated) % settings.sync_batch_commit == 0 \
-                            and (stats.new + stats.updated) > 0:
-                        _flush_writes(cur, writes, stats)
-                        conn.commit()
-                        logger.info(
-                            "%s checkpoint: committed %d row(s) so far",
-                            prefix, stats.new + stats.updated,
-                        )
-
-                    if idx % PROGRESS_WRITE_EVERY == 0 or idx == total:
-                        _flush_writes(cur, writes, stats)
-                        _write_progress(job, stats, idx, total)
+                    _maybe_commit_and_progress(
+                        conn, cur, writes, stats, idx, total, prefix, job,
+                    )
                 _flush_writes(cur, writes, stats)
                 conn.commit()
         finally:
