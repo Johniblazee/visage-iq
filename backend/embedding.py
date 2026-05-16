@@ -1,6 +1,9 @@
+import faulthandler
 import io
 import logging
+import sys
 from dataclasses import dataclass
+from time import perf_counter
 
 import cv2
 import numpy as np
@@ -9,6 +12,14 @@ from insightface.app import FaceAnalysis
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from backend.config import settings
+
+# Dump a C-level traceback to stderr on SIGSEGV/SIGABRT/SIGFPE. The InsightFace
+# + onnxruntime + CUDA native stack can abort the process (signal 6/11) without
+# raising a Python exception — `finally` never runs and the only log line is
+# something like "corrupted size vs. prev_size". With faulthandler enabled the
+# crashing C frames hit `make logs-worker`, which is the only way to bisect
+# which file / op triggered the abort.
+faulthandler.enable(file=sys.stderr, all_threads=True)
 
 # Register HEIF/HEIC support so Pillow's Image.open transparently handles them
 # (iPhones default to HEIC; without this they fail to decode).
@@ -35,6 +46,7 @@ class EmbeddingResult:
 
 
 _app: FaceAnalysis | None = None
+_sync_app: FaceAnalysis | None = None
 
 ROTATIONS = (0, 90, 180, 270)
 
@@ -45,27 +57,56 @@ _ROTATION_OPS = {
 }
 
 
-def get_app() -> FaceAnalysis:
-    global _app
+def _load_app(
+    *,
+    profile: str,
+    model_name: str,
+    modules: list[str] | None,
+    det_size: int,
+    providers: list[str],
+) -> FaceAnalysis:
+    logger.info(
+        "Loading InsightFace [%s] model '%s' (providers=%s, modules=%s, det_size=%d). "
+        "First run downloads weights to ~/.insightface/models/",
+        profile,
+        model_name,
+        providers,
+        modules or "all",
+        det_size,
+    )
+    kwargs: dict = {
+        "name": model_name,
+        "providers": providers,
+    }
+    if modules is not None:
+        kwargs["allowed_modules"] = modules
+    app = FaceAnalysis(**kwargs)
+    ctx_id = -1 if "CPUExecutionProvider" in providers and len(providers) == 1 else 0
+    app.prepare(ctx_id=ctx_id, det_size=(det_size, det_size))
+    return app
+
+
+def get_app(profile: str = "match") -> FaceAnalysis:
+    global _app, _sync_app
+    if profile == "sync":
+        if _sync_app is None:
+            _sync_app = _load_app(
+                profile="sync",
+                model_name=settings.sync_insightface_model_value,
+                modules=settings.sync_insightface_modules_list,
+                det_size=settings.sync_det_size_value,
+                providers=settings.sync_providers_list,
+            )
+        return _sync_app
+
     if _app is None:
-        modules = settings.insightface_modules_list
-        logger.info(
-            "Loading InsightFace model '%s' (providers=%s, modules=%s). "
-            "First run downloads weights to ~/.insightface/models/",
-            settings.insightface_model,
-            settings.providers_list,
-            modules or "all",
+        _app = _load_app(
+            profile="match",
+            model_name=settings.insightface_model,
+            modules=settings.insightface_modules_list,
+            det_size=settings.det_size,
+            providers=settings.providers_list,
         )
-        kwargs: dict = {
-            "name": settings.insightface_model,
-            "providers": settings.providers_list,
-        }
-        if modules is not None:
-            kwargs["allowed_modules"] = modules
-        app = FaceAnalysis(**kwargs)
-        ctx_id = -1 if "CPUExecutionProvider" in settings.providers_list and len(settings.providers_list) == 1 else 0
-        app.prepare(ctx_id=ctx_id, det_size=(settings.det_size, settings.det_size))
-        _app = app
     return _app
 
 
@@ -101,7 +142,7 @@ def _largest(faces):
     return max(faces, key=area)
 
 
-def embed(image_bytes: bytes) -> EmbeddingResult:
+def embed(image_bytes: bytes, profile: str = "match") -> EmbeddingResult:
     """Detect + embed the largest face, trying 0/90/180/270 rotations.
 
     The rotation that produces the highest-confidence detection is treated as
@@ -110,13 +151,19 @@ def embed(image_bytes: bytes) -> EmbeddingResult:
     self-similarity for the same photo is preserved.
     """
     base = _decode(image_bytes)
-    app = get_app()
+    app = get_app(profile)
     best: tuple[float, int, object, int] | None = None  # (score, deg, face, n_faces)
-    early_exit = settings.rotation_early_exit_score
+    if profile == "sync":
+        early_exit = settings.sync_rotation_early_exit_score_value
+        mode = (settings.sync_rotation_mode_value or "fallback").lower()
+        rotation_enabled = settings.sync_rotation_enabled_value
+    else:
+        early_exit = settings.rotation_early_exit_score
+        mode = (settings.rotation_mode or "fallback").lower()
+        rotation_enabled = settings.rotation_enabled
 
     # Resolve the effective rotation mode.
-    mode = (settings.rotation_mode or "fallback").lower()
-    if not settings.rotation_enabled:
+    if not rotation_enabled:
         mode = "off"  # kill-switch wins
     if mode not in ("off", "fallback", "always"):
         mode = "fallback"  # safe default for unknown values
@@ -167,9 +214,15 @@ def _embed_worker_init() -> None:
     Without this, every submit() would lazily reload ~300 MB of model weights
     on first call inside that subprocess, defeating the whole point of pooling.
     """
-    get_app()
+    get_app("sync")
 
 
 def embed_for_pool(image_bytes: bytes) -> EmbeddingResult:
     """Picklable entry point for ProcessPoolExecutor.submit()."""
-    return embed(image_bytes)
+    return embed(image_bytes, profile="sync")
+
+
+def embed_timed(image_bytes: bytes, profile: str = "match") -> tuple[EmbeddingResult, float]:
+    started = perf_counter()
+    result = embed(image_bytes, profile=profile)
+    return result, perf_counter() - started
