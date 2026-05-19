@@ -275,17 +275,3 @@ def embed_many(image_bytes: bytes, profile: str = "match") -> MultiEmbeddingResu
         for face in sorted(faces, key=lambda face: float(face.bbox[0]))
     ]
     return MultiEmbeddingResult(faces=results, rotation=rotation)
-
-
-def _embed_worker_init() -> None:
-    """ProcessPoolExecutor initializer — warms InsightFace once per subprocess.
-
-    Without this, every submit() would lazily reload ~300 MB of model weights
-    on first call inside that subprocess, defeating the whole point of pooling.
-    """
-    get_app("sync")
-
-
-def embed_for_pool(image_bytes: bytes) -> EmbeddingResult:
-    """Picklable entry point for ProcessPoolExecutor.submit()."""
-    return embed(image_bytes, profile="sync")

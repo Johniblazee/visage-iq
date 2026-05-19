@@ -19,21 +19,11 @@ class Settings(BaseSettings):
     # for ~30–40% lower worker RAM. Set empty (or to all five) to restore the
     # full default loadout.
     insightface_modules: str = "detection,recognition"
-    # Per-sync embedding parallelism. 1 = current synchronous behavior.
-    # Use >1 only on CPU; on GPU keep at 1 (multiple processes oversubscribe
-    # one GPU and thrash VRAM).
-    embed_workers: int = 1
-    # Bounded inflight queue for the ProcessPoolExecutor. Prevents reading
-    # all image bytes for a 22k-file sync into memory at once.
-    embed_worker_max_inflight: int = 8
-    # Drive-download prefetch: a ThreadPoolExecutor pulls upcoming files in
-    # parallel with embedding so I/O and inference overlap. This is the
-    # main GPU win — embedding is fast on GPU but Drive download is the
-    # bottleneck. Set to 1 to disable prefetch (synchronous downloads).
-    download_workers: int = 4
-    # Cap on simultaneously prefetched downloads. Each pending download
-    # buffers ~1–5 MB of image bytes; 8 inflight ≈ 40 MB upper bound.
-    download_max_inflight: int = 8
+    # Sync embeds one file at a time (single-throughput — stable on GPU).
+    # When true, a single background thread pre-fetches the next file's
+    # bytes while the current file is embedding, overlapping Drive I/O with
+    # GPU compute (~up to 2x when download-bound). One thread, one inflight.
+    sync_prefetch: bool = False
     # Optional sync-specific embedding settings. Leave blank / unset to reuse
     # the interactive `/match` settings above.
     sync_insightface_model: str = ""

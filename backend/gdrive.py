@@ -1,10 +1,11 @@
 import io
 import json
 import logging
+import ssl
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
-from functools import lru_cache
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -45,12 +46,23 @@ def _load_credentials():
     return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
 
 
-@lru_cache(maxsize=1)
+_local = threading.local()
+
+
 def _service():
+    # Thread-local: googleapiclient's default transport (httplib2.Http) is NOT
+    # thread-safe. A single shared client used concurrently (the /image
+    # threadpool, the worker's prefetch + main thread) corrupts the TLS stream
+    # → SSLError WRONG_VERSION_NUMBER / bad record mac → process segfault.
+    # One service (and one httplib2.Http) per thread isolates the socket.
     if not settings.gdrive_folder_id:
         raise DriveError("GDRIVE_FOLDER_ID not set")
-    creds = _load_credentials()
-    return build("drive", "v3", credentials=creds, cache_discovery=False)
+    svc = getattr(_local, "svc", None)
+    if svc is None:
+        creds = _load_credentials()
+        svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+        _local.svc = svc
+    return svc
 
 
 def _parse_dt(s: str | None) -> datetime | None:
@@ -79,6 +91,8 @@ def _list_children(folder_id: str) -> Iterator[dict]:
             )
         except HttpError as exc:
             raise DriveError(f"Drive list failed for folder {folder_id}: {exc}") from exc
+        except (ssl.SSLError, OSError, TimeoutError) as exc:
+            raise DriveError(f"Drive list error for folder {folder_id}: {exc}") from exc
         for item in resp.get("files", []):
             yield item
         page_token = resp.get("nextPageToken")
@@ -123,6 +137,8 @@ def download_bytes(file_id: str) -> bytes:
             _, done = downloader.next_chunk()
         except HttpError as exc:
             raise DriveError(f"Drive download failed for {file_id}: {exc}") from exc
+        except (ssl.SSLError, OSError, TimeoutError) as exc:
+            raise DriveError(f"Drive download error for {file_id}: {exc}") from exc
     return buf.getvalue()
 
 
@@ -140,6 +156,8 @@ def get_metadata(file_id: str) -> DriveFile:
         )
     except HttpError as exc:
         raise DriveError(f"Drive metadata failed for {file_id}: {exc}") from exc
+    except (ssl.SSLError, OSError, TimeoutError) as exc:
+        raise DriveError(f"Drive metadata error for {file_id}: {exc}") from exc
     return DriveFile(
         id=item["id"],
         name=item["name"],
