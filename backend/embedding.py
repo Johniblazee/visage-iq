@@ -27,6 +27,49 @@ pillow_heif.register_heif_opener()
 logger = logging.getLogger(__name__)
 
 
+def _patch_insightface_face_align() -> None:
+    """Route InsightFace alignment through scikit-image's new
+    `SimilarityTransform.from_estimate` instead of the deprecated mutating
+    `estimate()` method.
+
+    insightface 0.7.3 is unmaintained and calls the deprecated API once per
+    detected face, flooding logs with a FutureWarning. `from_estimate` is
+    numerically identical (verified: max abs diff 0.0 on success; NaN params
+    on degenerate input, matching the old path), so embeddings — and the
+    enrolled DB — are unchanged. No-op on scikit-image < 0.26 (no
+    `from_estimate`; that version doesn't emit the warning either).
+    """
+    from insightface.utils import face_align
+    from skimage import transform as trans
+
+    if not hasattr(trans.SimilarityTransform, "from_estimate"):
+        return  # old scikit-image: deprecated API still canonical, no warning
+
+    arcface_dst = face_align.arcface_dst
+
+    def estimate_norm(lmk, image_size=112, mode="arcface"):
+        assert lmk.shape == (5, 2)
+        assert image_size % 112 == 0 or image_size % 128 == 0
+        if image_size % 112 == 0:
+            ratio = float(image_size) / 112.0
+            diff_x = 0
+        else:
+            ratio = float(image_size) / 128.0
+            diff_x = 8.0 * ratio
+        dst = arcface_dst * ratio  # numpy * → copy; original template untouched
+        dst[:, 0] += diff_x
+        res = trans.SimilarityTransform.from_estimate(lmk, dst)
+        if res:  # success → params bit-identical to the deprecated estimate()
+            return np.asarray(res.params)[0:2, :]
+        # degenerate landmarks: match the legacy NaN M exactly
+        return np.full((2, 3), np.nan, dtype=np.float64)
+
+    face_align.estimate_norm = estimate_norm
+
+
+_patch_insightface_face_align()
+
+
 class NoFaceDetected(Exception):
     pass
 
