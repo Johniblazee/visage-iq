@@ -11,3 +11,4 @@ data/photos/*
 *.onnx
 .streamlit/
 .DS_Store
+.vscode/
