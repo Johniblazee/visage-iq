@@ -190,7 +190,7 @@ export default function AppSidebar({
             <label className="flex items-center gap-2 text-sm text-sidebar-foreground/80">
               <Checkbox
                 checked={pruneDeleted}
-                onCheckedChange={(checked) => setPruneDeleted(checked === true)}
+                onCheckedChange={setPruneDeleted}
                 className="border-sidebar-foreground/40 data-checked:border-sidebar-primary data-checked:bg-sidebar-primary data-checked:text-sidebar-primary-foreground"
               />
               <span>Remove deleted Drive files</span>

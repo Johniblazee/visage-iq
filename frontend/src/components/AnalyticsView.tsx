@@ -174,15 +174,13 @@ export default function AnalyticsView({ active, onOpsChanged }: AnalyticsViewPro
     if (!matrixMap.has(row.ext)) matrixMap.set(row.ext, { ext: row.ext, counts: {} });
     matrixMap.get(row.ext)!.counts[row.outcome] = row.count;
   }
-  const matrixRows = Array.from(matrixMap.values()).sort((a, b) =>
-    String(a.ext).localeCompare(String(b.ext)),
-  );
+  const matrixRows = Array.from(matrixMap.values()).sort((a, b) => a.ext.localeCompare(b.ext));
   const currentRange = filePage.total
     ? `${filePage.total.toLocaleString()} matches. Showing ${(filePage.offset + 1).toLocaleString()}-${Math.min(filePage.offset + filePage.limit, filePage.total).toLocaleString()}.`
     : "0 matches";
 
   function outcomeLabel(key: string) {
-    return outcomeLabels[key] || key || "";
+    return outcomeLabels[key] || key;
   }
   function outcomePercent(count: number) {
     return totalFiles ? (Number(count) / totalFiles) * 100 : 0;
@@ -450,9 +448,7 @@ export default function AnalyticsView({ active, onOpsChanged }: AnalyticsViewPro
                         <TableCell>
                           <Checkbox
                             checked={selectedFileIds.has(row.drive_file_id)}
-                            onCheckedChange={(checked) =>
-                              toggleSelected(row.drive_file_id, checked === true)
-                            }
+                            onCheckedChange={(checked) => toggleSelected(row.drive_file_id, checked)}
                           />
                         </TableCell>
                         <TableCell className="min-w-60 break-words whitespace-normal">
