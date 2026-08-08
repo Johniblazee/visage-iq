@@ -1,9 +1,21 @@
 import { AlertTriangle, ChevronLeft, ChevronRight, Search, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 import { apiRequest, apiUrl, errorMessage, type MatchResponse } from "../api";
 import { formatNumber } from "../format";
 
 const FETCH_TOP_K = 20;
+
+// Base UI sliders report number | number[]; we always use a single thumb.
+function sliderValue(value: number | readonly number[]): number {
+  return Array.isArray(value) ? (value[0] as number) : (value as number);
+}
 
 export default function SearchView({ active }: { active: boolean }) {
   const [matchThreshold, setMatchThreshold] = useState(Number(import.meta.env.VITE_DEFAULT_MATCH || 0.5));
@@ -30,8 +42,21 @@ export default function SearchView({ active }: { active: boolean }) {
     if (similarity >= reviewThreshold) return "REVIEW";
     return "NO_MATCH";
   }
-  function verdictClass(similarity: number) {
-    return `verdict ${verdict(similarity).toLowerCase().replace("_", "-")}`;
+  function verdictBadge(similarity: number) {
+    const label = verdict(similarity);
+    return (
+      <Badge
+        variant="secondary"
+        className={cn(
+          "font-bold",
+          label === "MATCH" && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+          label === "REVIEW" && "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+          label === "NO_MATCH" && "bg-red-500/15 text-red-700 dark:text-red-400",
+        )}
+      >
+        {label}
+      </Badge>
+    );
   }
   function handleMatchThreshold(value: number) {
     setMatchThreshold(value);
@@ -126,176 +151,206 @@ export default function SearchView({ active }: { active: boolean }) {
   }, [matchData, selectedFaceIndex, uploadUrl]);
 
   return (
-    <section className="view" style={{ display: active ? undefined : "none" }}>
-      <header className="view-header">
+    <section className="grid gap-5" style={{ display: active ? undefined : "none" }}>
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2>Face Search</h2>
-          <p>Upload a portrait, passport, or ID photo and review ranked candidates.</p>
+          <h2 className="text-2xl font-semibold tracking-tight">Face Search</h2>
+          <p className="text-sm text-muted-foreground">
+            Upload a portrait, passport, or ID photo and review ranked candidates.
+          </p>
         </div>
-        <div className="thresholds">
-          <label>
-            <span>Match {matchThreshold.toFixed(2)}</span>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={matchThreshold}
-              onChange={(event) => handleMatchThreshold(event.target.valueAsNumber)}
+        <div className="grid w-full gap-4 sm:grid-cols-3 lg:max-w-md">
+          <div className="grid gap-2.5">
+            <Label className="text-xs text-muted-foreground">Match {matchThreshold.toFixed(2)}</Label>
+            <Slider
+              value={[matchThreshold]}
+              min={0}
+              max={1}
+              step={0.01}
+              onValueChange={(value) => handleMatchThreshold(sliderValue(value))}
             />
-          </label>
-          <label>
-            <span>Review {reviewThreshold.toFixed(2)}</span>
-            <input
-              type="range"
-              min="0"
+          </div>
+          <div className="grid gap-2.5">
+            <Label className="text-xs text-muted-foreground">Review {reviewThreshold.toFixed(2)}</Label>
+            <Slider
+              value={[reviewThreshold]}
+              min={0}
               max={reviewMax}
-              step="0.01"
-              value={reviewThreshold}
-              onChange={(event) => setReviewThreshold(event.target.valueAsNumber)}
+              step={0.01}
+              onValueChange={(value) => setReviewThreshold(sliderValue(value))}
             />
-          </label>
-          <label>
-            <span>Top K {topK}</span>
-            <input
-              type="range"
-              min="1"
+          </div>
+          <div className="grid gap-2.5">
+            <Label className="text-xs text-muted-foreground">Top K {topK}</Label>
+            <Slider
+              value={[topK]}
+              min={1}
               max={FETCH_TOP_K}
-              step="1"
-              value={topK}
-              onChange={(event) => setTopK(event.target.valueAsNumber)}
+              step={1}
+              onValueChange={(value) => setTopK(sliderValue(value))}
             />
-          </label>
+          </div>
         </div>
       </header>
-      <div className="upload-strip">
-        <label className="file-picker" htmlFor="upload-input">
-          <Upload size={18} />
+
+      <div className="flex flex-wrap items-center gap-2.5">
+        <label
+          htmlFor="upload-input"
+          className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input bg-background px-3 text-sm hover:bg-muted"
+        >
+          <Upload className="size-4" />
           <span>{uploadFile ? uploadFile.name : "Choose image"}</span>
           <input
             id="upload-input"
             ref={fileInputRef}
             type="file"
             accept="image/*,.heic,.heif"
+            className="hidden"
             onChange={handleUpload}
           />
         </label>
-        <button
-          className="button primary"
-          type="button"
-          disabled={!uploadFile || isMatching}
-          onClick={runMatch}
-        >
-          <Search size={16} />
+        <Button disabled={!uploadFile || isMatching} onClick={runMatch}>
+          <Search />
           <span>{isMatching ? "Searching..." : matchData ? "Search again" : "Search"}</span>
-        </button>
-        <button
-          className="button secondary"
-          type="button"
-          disabled={!uploadFile}
-          onClick={() => clearSearch()}
-        >
-          <X size={16} />
+        </Button>
+        <Button variant="outline" disabled={!uploadFile} onClick={() => clearSearch()}>
+          <X />
           <span>Clear</span>
-        </button>
+        </Button>
       </div>
+
       {matchError && (
-        <p className="callout danger">
-          <AlertTriangle size={17} /> {matchError}
-        </p>
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertDescription>{matchError}</AlertDescription>
+        </Alert>
       )}
-      {!uploadFile && <p className="callout">Upload an image to search the enrolled database.</p>}
+      {!uploadFile && (
+        <Alert>
+          <Upload />
+          <AlertDescription>Upload an image to search the enrolled database.</AlertDescription>
+        </Alert>
+      )}
+
       {uploadFile && (
-        <div className="search-grid">
-          <section className="query-pane">
-            <div className="pane-title">
-              <h3>Query</h3>
-              {matchData && <span>{matchData.query_face_count} face(s)</span>}
-            </div>
-            <div className="canvas-wrap">
-              <canvas
-                ref={canvasRef}
-                style={{ display: matchData && !canvasError ? undefined : "none" }}
-              ></canvas>
-              {!matchData && uploadUrl && <img src={uploadUrl} alt="Uploaded query preview" />}
-              {canvasError && <p className="muted">{canvasError}</p>}
-            </div>
-            {matchData && selectedFace && (
-              <div className="query-meta">
-                <span>
-                  Face {selectedFaceIndex + 1} of {faces.length}
-                </span>
-                <span>Detection {selectedFace.det_score.toFixed(3)}</span>
-                {matchData.query_rotation ? <span>Rotation {matchData.query_rotation}deg</span> : null}
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Query</CardTitle>
+              {matchData && (
+                <CardAction className="text-sm text-muted-foreground">
+                  {matchData.query_face_count} face(s)
+                </CardAction>
+              )}
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <div className="grid min-h-90 place-items-center overflow-hidden rounded-lg bg-slate-900">
+                <canvas
+                  ref={canvasRef}
+                  className="block max-h-[68vh] max-w-full"
+                  style={{ display: matchData && !canvasError ? undefined : "none" }}
+                ></canvas>
+                {!matchData && uploadUrl && (
+                  <img src={uploadUrl} alt="Uploaded query preview" className="block max-h-[68vh] max-w-full" />
+                )}
+                {canvasError && <p className="p-4 text-sm text-slate-400">{canvasError}</p>}
               </div>
-            )}
-          </section>
-          <section className="results-pane">
-            <div className="pane-title">
-              <h3>Top candidates</h3>
-              {matchData && <span>{formatNumber(matchData.enrolled_count)} searched</span>}
-            </div>
-            {matchData && matchData.enrolled_count === 0 ? (
-              <p className="callout warn">Database is empty. Run a Drive sync before comparing images.</p>
-            ) : !matchData ? (
-              <p className="muted">Run search to see ranked matches.</p>
-            ) : null}
-            {faces.length > 1 && (
-              <div className="face-pager">
-                <button
-                  className="icon-button"
-                  type="button"
-                  disabled={selectedFaceIndex === 0}
-                  title="Previous face"
-                  onClick={() => changeFace(-1)}
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <span>
-                  Face {selectedFaceIndex + 1} of {faces.length}
-                </span>
-                <button
-                  className="icon-button"
-                  type="button"
-                  disabled={selectedFaceIndex >= faces.length - 1}
-                  title="Next face"
-                  onClick={() => changeFace(1)}
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </div>
-            )}
-            {topCandidate && (
-              <div className="top-match">
-                <span>Top match</span>
-                <strong>{Math.max(0, topCandidate.similarity * 100).toFixed(1)}%</strong>
-                <em className={verdictClass(topCandidate.similarity)}>{verdict(topCandidate.similarity)}</em>
-              </div>
-            )}
-            {visibleCandidates.map((candidate, index) => (
-              <article key={candidate.drive_file_id} className="candidate-card">
-                <img
-                  src={apiUrl(`/image/${encodeURIComponent(candidate.drive_file_id)}`)}
-                  alt={candidate.title}
-                  loading="lazy"
-                />
-                <div>
-                  <div className="candidate-head">
-                    <strong>
-                      #{index + 1} {candidate.title}
-                    </strong>
-                    <span>{Math.max(0, candidate.similarity * 100).toFixed(1)}%</span>
-                  </div>
-                  <div className="score-bar">
-                    <span
-                      style={{ width: `${Math.max(0, Math.min(100, candidate.similarity * 100))}%` }}
-                    ></span>
-                  </div>
-                  <em className={verdictClass(candidate.similarity)}>{verdict(candidate.similarity)}</em>
+              {matchData && selectedFace && (
+                <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
+                  <span>
+                    Face {selectedFaceIndex + 1} of {faces.length}
+                  </span>
+                  <span>Detection {selectedFace.det_score.toFixed(3)}</span>
+                  {matchData.query_rotation ? <span>Rotation {matchData.query_rotation}deg</span> : null}
                 </div>
-              </article>
-            ))}
-          </section>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Top candidates</CardTitle>
+              {matchData && (
+                <CardAction className="text-sm text-muted-foreground">
+                  {formatNumber(matchData.enrolled_count)} searched
+                </CardAction>
+              )}
+            </CardHeader>
+            <CardContent className="grid content-start gap-3">
+              {matchData && matchData.enrolled_count === 0 ? (
+                <Alert>
+                  <AlertTriangle />
+                  <AlertDescription>
+                    Database is empty. Run a Drive sync before comparing images.
+                  </AlertDescription>
+                </Alert>
+              ) : !matchData ? (
+                <p className="text-sm text-muted-foreground">Run search to see ranked matches.</p>
+              ) : null}
+              {faces.length > 1 && (
+                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    disabled={selectedFaceIndex === 0}
+                    title="Previous face"
+                    onClick={() => changeFace(-1)}
+                  >
+                    <ChevronLeft />
+                  </Button>
+                  <span>
+                    Face {selectedFaceIndex + 1} of {faces.length}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    disabled={selectedFaceIndex >= faces.length - 1}
+                    title="Next face"
+                    onClick={() => changeFace(1)}
+                  >
+                    <ChevronRight />
+                  </Button>
+                </div>
+              )}
+              {topCandidate && (
+                <div className="flex items-center gap-3 rounded-lg border bg-muted/50 p-3">
+                  <span className="text-sm text-muted-foreground">Top match</span>
+                  <strong className="text-2xl">
+                    {Math.max(0, topCandidate.similarity * 100).toFixed(1)}%
+                  </strong>
+                  {verdictBadge(topCandidate.similarity)}
+                </div>
+              )}
+              {visibleCandidates.map((candidate, index) => (
+                <article
+                  key={candidate.drive_file_id}
+                  className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 rounded-lg border p-2.5 sm:grid-cols-[96px_minmax(0,1fr)]"
+                >
+                  <img
+                    src={apiUrl(`/image/${encodeURIComponent(candidate.drive_file_id)}`)}
+                    alt={candidate.title}
+                    loading="lazy"
+                    className="size-18 rounded-md bg-muted object-cover sm:size-24"
+                  />
+                  <div className="min-w-0">
+                    <div className="mb-2 flex items-start justify-between gap-2 text-sm">
+                      <strong className="min-w-0 break-words font-medium">
+                        #{index + 1} {candidate.title}
+                      </strong>
+                      <span>{Math.max(0, candidate.similarity * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${Math.max(0, Math.min(100, candidate.similarity * 100))}%` }}
+                      />
+                    </div>
+                    {verdictBadge(candidate.similarity)}
+                  </div>
+                </article>
+              ))}
+            </CardContent>
+          </Card>
         </div>
       )}
     </section>

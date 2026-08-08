@@ -1,5 +1,26 @@
 import { AlertTriangle, ChevronLeft, ChevronRight, Image as ImageIcon, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { apiRequest, errorMessage, type AnalyticsSummary, type FilePage } from "../api";
 import { formatNumber, relativeTime } from "../format";
 
@@ -19,6 +40,10 @@ const outcomeColors: Record<string, string> = {
   drive_error: "#dc2626",
   embed_error: "#dc2626",
 };
+
+// Files with no extension surface as "" in the API; the select shows them
+// as "(none)" and we translate back when building the query params.
+const NONE_EXT = "(none)";
 
 // One object describing the current /analytics/files query. Committing a new
 // object (even with identical fields) re-runs the fetch effect below.
@@ -82,7 +107,7 @@ export default function AnalyticsView({ active, onOpsChanged }: AnalyticsViewPro
         offset: String(fileQuery.offset),
       });
       if (fileQuery.outcome !== "(any)") params.set("outcome", fileQuery.outcome);
-      if (fileQuery.ext !== "(any)") params.set("ext", fileQuery.ext);
+      if (fileQuery.ext !== "(any)") params.set("ext", fileQuery.ext === NONE_EXT ? "" : fileQuery.ext);
       if (fileQuery.q) params.set("q", fileQuery.q);
       try {
         const page = await apiRequest<FilePage>(`/analytics/files?${params.toString()}`);
@@ -135,7 +160,12 @@ export default function AnalyticsView({ active, onOpsChanged }: AnalyticsViewPro
     .filter(([key]) => !["enrolled", "unchanged"].includes(key))
     .reduce((sum, [, count]) => sum + Number(count || 0), 0);
   const outcomeOptions = ["(any)", ...Object.keys(byOutcome).sort()];
-  const extOptions = ["(any)", ...Object.keys(analytics?.by_ext || {}).sort()];
+  const extOptions = [
+    "(any)",
+    ...Object.keys(analytics?.by_ext || {})
+      .sort()
+      .map((ext) => (ext === "" ? NONE_EXT : ext)),
+  ];
   const sortedOutcomes = Object.entries(byOutcome).sort((a, b) => b[1] - a[1]);
   const sortedExtensions = Object.entries(analytics?.by_ext || {}).sort((a, b) => b[1] - a[1]);
   const matrixOutcomes = Object.keys(byOutcome).sort();
@@ -159,270 +189,322 @@ export default function AnalyticsView({ active, onOpsChanged }: AnalyticsViewPro
   }
 
   return (
-    <section className="view" style={{ display: active ? undefined : "none" }}>
-      <header className="view-header">
+    <section className="grid gap-5" style={{ display: active ? undefined : "none" }}>
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2>Sync Analytics</h2>
-          <p>Inspect the latest Drive sync outcomes and retry failed rows.</p>
+          <h2 className="text-2xl font-semibold tracking-tight">Sync Analytics</h2>
+          <p className="text-sm text-muted-foreground">
+            Inspect the latest Drive sync outcomes and retry failed rows.
+          </p>
         </div>
-        <button
-          className="button secondary"
-          type="button"
-          disabled={analyticsLoading}
-          onClick={loadAnalytics}
-        >
-          <RefreshCw size={16} />
+        <Button variant="outline" disabled={analyticsLoading} onClick={loadAnalytics}>
+          <RefreshCw />
           <span>{analyticsLoading ? "Refreshing..." : "Refresh"}</span>
-        </button>
+        </Button>
       </header>
+
       {analyticsError && (
-        <p className="callout danger">
-          <AlertTriangle size={17} /> {analyticsError}
-        </p>
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertDescription>{analyticsError}</AlertDescription>
+        </Alert>
       )}
+
       {analytics ? (
-        <div className="analytics-layout">
-          <div className="stat-row">
-            <div>
-              <span>Files seen</span>
-              <strong>{formatNumber(analytics.totals?.file_status_total)}</strong>
-            </div>
-            <div>
-              <span>Enrolled</span>
-              <strong>{formatNumber(analytics.totals?.persons_total)}</strong>
-            </div>
-            <div>
-              <span>Skipped</span>
-              <strong>{formatNumber(skippedTotal)}</strong>
-            </div>
+        <div className="grid gap-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Card size="sm" className="gap-1 p-4">
+              <span className="text-xs text-muted-foreground">Files seen</span>
+              <strong className="text-2xl">{formatNumber(analytics.totals?.file_status_total)}</strong>
+            </Card>
+            <Card size="sm" className="gap-1 p-4">
+              <span className="text-xs text-muted-foreground">Enrolled</span>
+              <strong className="text-2xl">{formatNumber(analytics.totals?.persons_total)}</strong>
+            </Card>
+            <Card size="sm" className="gap-1 p-4">
+              <span className="text-xs text-muted-foreground">Skipped</span>
+              <strong className="text-2xl">{formatNumber(skippedTotal)}</strong>
+            </Card>
           </div>
-          <div className="split-grid">
-            <section>
-              <h3>By outcome</h3>
-              {sortedOutcomes.map(([key, count]) => (
-                <div key={key} className="bar-row">
-                  <div>
-                    <span>{outcomeLabel(key)}</span>
-                    <strong>{formatNumber(count)}</strong>
-                    <em>{outcomePercent(count).toFixed(1)}%</em>
-                  </div>
-                  <div className="score-bar">
-                    <span
-                      style={{
-                        width: `${outcomePercent(count)}%`,
-                        background: outcomeColors[key] || "#64748b",
-                      }}
-                    ></span>
-                  </div>
-                </div>
-              ))}
-            </section>
-            <section>
-              <h3>By file extension</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Extension</th>
-                    <th>Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedExtensions.map(([ext, count]) => (
-                    <tr key={ext}>
-                      <td>{ext || "(none)"}</td>
-                      <td>{formatNumber(count)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          </div>
-          <section>
-            <h3>Outcome by extension</h3>
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Extension</th>
-                    {matrixOutcomes.map((outcome) => (
-                      <th key={outcome}>{outcomeLabel(outcome)}</th>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>By outcome</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table containerClassName="max-h-80 overflow-y-auto">
+                  <TableHeader className="sticky top-0 z-10 bg-card">
+                    <TableRow>
+                      <TableHead>Outcome</TableHead>
+                      <TableHead className="text-right">Count</TableHead>
+                      <TableHead className="w-1/2">Share</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedOutcomes.map(([key, count]) => (
+                      <TableRow key={key}>
+                        <TableCell>{outcomeLabel(key)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(count)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-full max-w-44 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full rounded-full"
+                                style={{
+                                  width: `${outcomePercent(count)}%`,
+                                  background: outcomeColors[key] || "#64748b",
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs tabular-nums text-muted-foreground">
+                              {outcomePercent(count).toFixed(1)}%
+                            </span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>By file extension</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table containerClassName="max-h-80 overflow-y-auto">
+                  <TableHeader className="sticky top-0 z-10 bg-card">
+                    <TableRow>
+                      <TableHead>Extension</TableHead>
+                      <TableHead className="text-right">Count</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedExtensions.map(([ext, count]) => (
+                      <TableRow key={ext}>
+                        <TableCell>{ext || "(none)"}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatNumber(count)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Outcome by extension</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table containerClassName="max-h-96 overflow-y-auto">
+                <TableHeader className="sticky top-0 z-10 bg-card">
+                  <TableRow>
+                    <TableHead>Extension</TableHead>
+                    {matrixOutcomes.map((outcome) => (
+                      <TableHead key={outcome}>{outcomeLabel(outcome)}</TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {matrixRows.map((row) => (
-                    <tr key={row.ext}>
-                      <td>{row.ext || "(none)"}</td>
+                    <TableRow key={row.ext}>
+                      <TableCell>{row.ext || "(none)"}</TableCell>
                       {matrixOutcomes.map((outcome) => (
-                        <td key={outcome}>{formatNumber(row.counts[outcome])}</td>
+                        <TableCell key={outcome}>{formatNumber(row.counts[outcome])}</TableCell>
                       ))}
-                    </tr>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-          <section>
-            <div className="browse-head">
-              <h3>Browse files</h3>
-              <span>{currentRange}</span>
-            </div>
-            <div className="filters">
-              <label>
-                <span>Outcome</span>
-                <select
-                  value={fileQuery.outcome}
-                  onChange={(event) =>
-                    setFileQuery((query) => ({ ...query, outcome: event.target.value, offset: 0 }))
-                  }
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Browse files</CardTitle>
+              <CardAction className="text-sm text-muted-foreground">{currentRange}</CardAction>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <div className="flex flex-wrap items-end gap-2.5">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs text-muted-foreground">Outcome</Label>
+                  <Select
+                    value={fileQuery.outcome}
+                    onValueChange={(value) =>
+                      setFileQuery((query) => ({ ...query, outcome: String(value), offset: 0 }))
+                    }
+                  >
+                    <SelectTrigger className="w-44">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {outcomeOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs text-muted-foreground">Extension</Label>
+                  <Select
+                    value={fileQuery.ext}
+                    onValueChange={(value) =>
+                      setFileQuery((query) => ({ ...query, ext: String(value), offset: 0 }))
+                    }
+                  >
+                    <SelectTrigger className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {extOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs text-muted-foreground">Filename contains</Label>
+                  <Input
+                    type="search"
+                    className="w-52"
+                    value={filenameDraft}
+                    onChange={(event) => setFilenameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") applyFilters();
+                    }}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs text-muted-foreground">Per page</Label>
+                  <Select
+                    value={String(fileQuery.pageSize)}
+                    onValueChange={(value) =>
+                      setFileQuery((query) => ({ ...query, pageSize: Number(value), offset: 0 }))
+                    }
+                  >
+                    <SelectTrigger className="w-24">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["50", "100", "200", "500"].map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button variant="outline" onClick={applyFilters}>
+                  Apply
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Button
+                  variant="outline"
+                  disabled={!selectedFileIds.size}
+                  onClick={() => retryFiles([...selectedFileIds])}
                 >
-                  {outcomeOptions.map((option) => (
-                    <option key={option}>{option}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Extension</span>
-                <select
-                  value={fileQuery.ext}
-                  onChange={(event) =>
-                    setFileQuery((query) => ({ ...query, ext: event.target.value, offset: 0 }))
-                  }
+                  <RefreshCw />
+                  <span>Retry selected ({selectedFileIds.size})</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={!filePage.rows.length}
+                  onClick={() => retryFiles(filePage.rows.map((row) => row.drive_file_id))}
                 >
-                  {extOptions.map((option) => (
-                    <option key={option}>{option}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Filename contains</span>
-                <input
-                  type="search"
-                  value={filenameDraft}
-                  onChange={(event) => setFilenameDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") applyFilters();
-                  }}
-                />
-              </label>
-              <label>
-                <span>Per page</span>
-                <select
-                  value={fileQuery.pageSize}
-                  onChange={(event) =>
+                  <RefreshCw />
+                  <span>Retry page ({filePage.rows.length})</span>
+                </Button>
+                {retryMessage && <span className="text-sm text-muted-foreground">{retryMessage}</span>}
+              </div>
+
+              <Table containerClassName="max-h-[32rem] overflow-y-auto">
+                  <TableHeader className="sticky top-0 z-10 bg-card">
+                    <TableRow>
+                      <TableHead></TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Ext</TableHead>
+                      <TableHead>Outcome</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Rotation</TableHead>
+                      <TableHead>Detection</TableHead>
+                      <TableHead>Last seen</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filesLoading && (
+                      <TableRow>
+                        <TableCell colSpan={8}>Loading files...</TableCell>
+                      </TableRow>
+                    )}
+                    {filePage.rows.map((row) => (
+                      <TableRow key={row.drive_file_id}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedFileIds.has(row.drive_file_id)}
+                            onCheckedChange={(checked) =>
+                              toggleSelected(row.drive_file_id, checked === true)
+                            }
+                          />
+                        </TableCell>
+                        <TableCell className="min-w-60 break-words whitespace-normal">
+                          {row.drive_file_name}
+                        </TableCell>
+                        <TableCell>{row.ext || ""}</TableCell>
+                        <TableCell>{outcomeLabel(row.outcome)}</TableCell>
+                        <TableCell className="whitespace-normal">{row.reason || ""}</TableCell>
+                        <TableCell>{row.rotation ?? ""}</TableCell>
+                        <TableCell>
+                          {typeof row.det_score === "number" ? row.det_score.toFixed(3) : ""}
+                        </TableCell>
+                        <TableCell>{row.last_seen_at ? relativeTime(row.last_seen_at) : ""}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+              </Table>
+
+              <div className="flex flex-wrap gap-2.5">
+                <Button
+                  variant="outline"
+                  disabled={fileQuery.offset === 0}
+                  onClick={() =>
                     setFileQuery((query) => ({
                       ...query,
-                      pageSize: Number(event.target.value),
-                      offset: 0,
+                      offset: Math.max(0, query.offset - query.pageSize),
                     }))
                   }
                 >
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
-                  <option value={500}>500</option>
-                </select>
-              </label>
-              <button className="button secondary" type="button" onClick={applyFilters}>
-                Apply
-              </button>
-            </div>
-            <div className="retry-row">
-              <button
-                className="button secondary"
-                type="button"
-                disabled={!selectedFileIds.size}
-                onClick={() => retryFiles([...selectedFileIds])}
-              >
-                <RefreshCw size={16} />
-                <span>Retry selected ({selectedFileIds.size})</span>
-              </button>
-              <button
-                className="button secondary"
-                type="button"
-                disabled={!filePage.rows.length}
-                onClick={() => retryFiles(filePage.rows.map((row) => row.drive_file_id))}
-              >
-                <RefreshCw size={16} />
-                <span>Retry page ({filePage.rows.length})</span>
-              </button>
-              {retryMessage && <span className="muted">{retryMessage}</span>}
-            </div>
-            <div className="table-scroll">
-              <table className="files-table">
-                <thead>
-                  <tr>
-                    <th></th>
-                    <th>Name</th>
-                    <th>Ext</th>
-                    <th>Outcome</th>
-                    <th>Reason</th>
-                    <th>Rotation</th>
-                    <th>Detection</th>
-                    <th>Last seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filesLoading && (
-                    <tr>
-                      <td colSpan={8}>Loading files...</td>
-                    </tr>
-                  )}
-                  {filePage.rows.map((row) => (
-                    <tr key={row.drive_file_id}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={selectedFileIds.has(row.drive_file_id)}
-                          onChange={(event) => toggleSelected(row.drive_file_id, event.target.checked)}
-                        />
-                      </td>
-                      <td>{row.drive_file_name}</td>
-                      <td>{row.ext || ""}</td>
-                      <td>{outcomeLabel(row.outcome)}</td>
-                      <td>{row.reason || ""}</td>
-                      <td>{row.rotation ?? ""}</td>
-                      <td>{typeof row.det_score === "number" ? row.det_score.toFixed(3) : ""}</td>
-                      <td>{row.last_seen_at ? relativeTime(row.last_seen_at) : ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="pager">
-              <button
-                className="button secondary"
-                type="button"
-                disabled={fileQuery.offset === 0}
-                onClick={() =>
-                  setFileQuery((query) => ({
-                    ...query,
-                    offset: Math.max(0, query.offset - query.pageSize),
-                  }))
-                }
-              >
-                <ChevronLeft size={16} />
-                <span>Previous</span>
-              </button>
-              <button
-                className="button secondary"
-                type="button"
-                disabled={fileQuery.offset + fileQuery.pageSize >= filePage.total}
-                onClick={() =>
-                  setFileQuery((query) => ({ ...query, offset: query.offset + query.pageSize }))
-                }
-              >
-                <span>Next</span>
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </section>
+                  <ChevronLeft />
+                  <span>Previous</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={fileQuery.offset + fileQuery.pageSize >= filePage.total}
+                  onClick={() =>
+                    setFileQuery((query) => ({ ...query, offset: query.offset + query.pageSize }))
+                  }
+                >
+                  <span>Next</span>
+                  <ChevronRight />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       ) : (
         !analyticsLoading && (
-          <p className="callout">
-            <ImageIcon size={17} /> No sync analytics loaded yet.
-          </p>
+          <Alert>
+            <ImageIcon />
+            <AlertDescription>No sync analytics loaded yet.</AlertDescription>
+          </Alert>
         )
       )}
     </section>

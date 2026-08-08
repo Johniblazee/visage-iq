@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { apiRequest, errorMessage, type Health, type SyncJob, type WorkerStatus } from "./api";
 import AnalyticsView from "./components/AnalyticsView";
+import AppSidebar from "./components/AppSidebar";
 import SearchView from "./components/SearchView";
-import Sidebar from "./components/Sidebar";
 
 export type Tab = "search" | "analytics";
 
@@ -85,8 +86,8 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
-      <Sidebar
+    <SidebarProvider>
+      <AppSidebar
         activeTab={activeTab}
         onTabChange={setActiveTab}
         health={health}
@@ -98,10 +99,18 @@ export default function App() {
         onSync={triggerSync}
         onForceUnlock={forceUnlock}
       />
-      <main className="main-panel">
-        <SearchView active={activeTab === "search"} />
-        <AnalyticsView active={activeTab === "analytics"} onOpsChanged={refreshOps} />
-      </main>
-    </div>
+      <SidebarInset>
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+          <SidebarTrigger className="-ml-1" />
+          <span className="text-sm font-medium">
+            {activeTab === "search" ? "Face Search" : "Sync Analytics"}
+          </span>
+        </header>
+        <div className="min-w-0 p-4 sm:p-6">
+          <SearchView active={activeTab === "search"} />
+          <AnalyticsView active={activeTab === "analytics"} onOpsChanged={refreshOps} />
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
