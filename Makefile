@@ -16,7 +16,7 @@ DOTENV := set -a; [ -f .env ] && . ./.env; set +a;
 DATABASE_URL ?= postgresql://postgres:pg@localhost:5432/postgres
 REDIS_URL    ?= redis://localhost:6379/0
 PORT_API     ?= 8000
-PORT_UI      ?= 8501
+PORT_UI      ?= 3000
 
 # GPU detection — if the host has nvidia-smi *and* it works, layer
 # docker-compose.gpu.yml on top of the base compose file so the api +
@@ -64,11 +64,8 @@ api:  ## Run the FastAPI server with autoreload (port 8000)
 worker:  ## Run the RQ worker for the sync queue
 	$(DOTENV) rq worker --url $${REDIS_URL:-$(REDIS_URL)} sync
 
-ui:  ## Run the Streamlit UI (port 8501)
-	API_BASE_URL=$${API_BASE_URL:-http://localhost:$(PORT_API)} \
-		streamlit run frontend/streamlit_app.py \
-			--server.address=0.0.0.0 --server.port=$(PORT_UI) \
-			--browser.gatherUsageStats=false
+ui:  ## Run the React UI with Vite (port 3000)
+	cd frontend && API_BASE_URL=$${API_BASE_URL:-http://localhost:$(PORT_API)} corepack pnpm run dev --host 0.0.0.0 --port $(PORT_UI)
 
 sync:  ## Run a foreground Drive→DB sync (no worker required)
 	python scripts/enroll.py
@@ -123,8 +120,9 @@ redis-cli:  ## Open redis-cli against the compose redis service
 health:  ## Hit the /health endpoint
 	curl -sS http://localhost:$(PORT_API)/health | (jq . 2>/dev/null || cat)
 
-check:  ## Byte-compile every Python module to catch syntax errors
-	python -m py_compile backend/*.py frontend/*.py scripts/enroll.py
+check:  ## Byte-compile Python modules and build the React UI
+	python -m py_compile backend/*.py frontend-test/*.py scripts/enroll.py
+	cd frontend && corepack pnpm run build
 	@echo "Syntax OK"
 
 # --- Cleanup ---------------------------------------------------------------

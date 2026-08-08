@@ -10,5 +10,7 @@ data/photos/*
 .insightface/
 *.onnx
 .streamlit/
+frontend/node_modules/
+frontend/dist/
 .DS_Store
 .vscode/

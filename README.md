@@ -14,14 +14,14 @@ Built for internal review tooling: every result is decision-*support* for a huma
 - **State-of-the-art recognition.** Powered by [InsightFace](https://github.com/deepinsight/insightface) `buffalo_l` (ArcFace + RetinaFace, 512-dim embeddings).
 - **Sub-second top-K queries** at hundreds of thousands of rows via pgvector's HNSW index.
 - **Background sync** with RQ workers + APScheduler — folder changes propagate every 30 minutes automatically, and a manual *Sync now* button is one click away.
-- **Streamlit UI** for uploads, candidate cards with confidence bars, and verdict bands (`MATCH` / `REVIEW` / `NO_MATCH`).
+- **React UI** for uploads, candidate cards with confidence bars, sync controls, analytics, and verdict bands (`MATCH` / `REVIEW` / `NO_MATCH`).
 - **Rate limiting** per IP via slowapi + Redis.
 - **One-command local stack** with Docker Compose and a self-documenting `Makefile`.
 - **One-click cloud deploy** with a Render Blueprint (`render.yaml`).
 
 ## Stack
 
-InsightFace `buffalo_l` · FastAPI · Streamlit · PostgreSQL 16 + pgvector (HNSW) · Redis 7 (cache + RQ + rate-limit) · APScheduler · Docker Compose · Render
+InsightFace `buffalo_l` · FastAPI · React · PostgreSQL 16 + pgvector (HNSW) · Redis 7 (cache + RQ + rate-limit) · APScheduler · Docker Compose · Render
 
 ## Architecture
 
@@ -48,7 +48,7 @@ InsightFace `buffalo_l` · FastAPI · Streamlit · PostgreSQL 16 + pgvector (HNS
         │ similarity search
         │
 ┌────────────────┐
-│  Streamlit UI  │  ◀── browser
+│  React UI      │  ◀── browser
 └────────────────┘
 ```
 
@@ -76,7 +76,7 @@ make up        # docker compose up --build -d (~5–10 min on first build)
 make health    # smoke-test the api
 ```
 
-Open the UI at http://localhost:8501. The sidebar nav has two pages: **Home** (match flow) and **Analytics** (per-file outcomes from the last sync). Click **Sync now** in the sidebar to populate the database. Upload a photo to see matches.
+Open the React UI at http://localhost:3000. The sidebar nav has two tabs: **Search** (match flow) and **Analytics** (per-file outcomes from the last sync). Click **Sync now** in the sidebar to populate the database. Upload a photo to see matches. The Streamlit reference UI (`frontend-test/`) runs separately at http://localhost:8501.
 
 While a sync is running, an **Active Sync** widget appears in the sidebar with a live progress bar and counters; it follows you as you switch between pages.
 
@@ -175,9 +175,9 @@ On Render, the same `GDRIVE_SA_JSON` env var is set on the **api** and **worker*
 
 ### From the UI
 
-1. Open http://localhost:8501.
+1. Open http://localhost:3000.
 2. Sidebar → **Sync now** to import the Drive folder (one-time, then every 30 min automatically). The **Active Sync** panel appears in the sidebar with a live progress bar and counters; it stays visible if you switch to **Analytics**.
-3. Upload a portrait on the home page. Top-3 candidates render with thumbnails, confidence percentage, verdict badge, and a **Top match: NN%** summary line. Sliders on the sidebar adjust the MATCH / REVIEW thresholds — verdict pills update live without re-querying.
+3. Upload a portrait on the **Search** tab. Top-3 candidates render with thumbnails, confidence percentage, verdict badge, and a **Top match: NN%** summary line. Sliders in the Search header adjust the MATCH / REVIEW thresholds — verdict pills update live without re-querying.
 4. Open **Analytics** (sidebar nav) for a breakdown of every file the worker has seen: outcome counts (`enrolled` / `unchanged` / `no_face` / `invalid_image` / `drive_error` / `embed_error`), file-extension distribution, an outcome×ext matrix, and a paginated browser of skipped files with reasons (50/100/200/500 rows per page).
 
 ### From the API
@@ -286,7 +286,7 @@ Pushes to the tracked branch auto-deploy all five resources. Schema migrations r
 make install     # python -m venv .venv && pip install -r requirements.txt
 make api         # FastAPI on :8000 with autoreload
 make worker      # RQ worker
-make ui          # Streamlit on :8501
+make ui          # React UI (Vite) on :3000
 make sync        # Foreground sync (no worker required)
 make check       # Byte-compile every Python module
 make psql        # psql shell into the compose db
@@ -331,7 +331,9 @@ For the initial bulk load without a worker, run `make sync` in a fourth terminal
 ```
 backend/                 FastAPI service, InsightFace wrapper, Drive client,
                          Redis cache, sync logic, RQ, analytics queries
-frontend/
+frontend/                React operator UI (face search, worker/sync controls,
+                         analytics, retry workflow)
+frontend-test/           Streamlit reference UI used during testing
 ├── streamlit_app.py     Home page (match flow)
 ├── _shared.py           Shared utilities (active-sync sidebar fragment)
 └── pages/
@@ -340,7 +342,8 @@ scripts/                 init_db.sql (persons + file_status tables),
                          enroll.py (foreground sync CLI)
 Dockerfile               CPU image for api + worker (slim-bookworm)
 Dockerfile.gpu           GPU image — CUDA 12.6 + cuDNN 9 + Python 3.12
-Dockerfile.ui            Slim Streamlit image
+Dockerfile.ui            React build + Nginx image
+Dockerfile.streamlit     Streamlit reference UI image (frontend-test/)
 docker-compose.yml       Base compose (CPU)
 docker-compose.gpu.yml   Override — switches api/worker to Dockerfile.gpu and
                          requests the NVIDIA GPU. Auto-applied by the Makefile.
@@ -387,7 +390,7 @@ requirements.txt
 | Thumbnail returns 502 | api couldn't fetch from Drive | Check api logs; usually a permission revoke or deleted file |
 | `Failed to load library libonnxruntime_providers_cuda.so ... libcublasLt.so.12` | api/worker built from CPU `Dockerfile` (no CUDA libs) | Run `make rebuild` on a host with `nvidia-smi`; the Makefile picks `Dockerfile.gpu` automatically |
 | `E: Unable to locate package python3.12-distutils` (build) | Python 3.12 doesn't ship a separate distutils package | Already fixed — pull latest `Dockerfile.gpu` |
-| `Calling st.sidebar in a function wrapped with st.fragment is not supported` | Streamlit's rule: a fragment writes to its caller's container | Already fixed in `frontend/_shared.py`; pull latest |
+| `Calling st.sidebar in a function wrapped with st.fragment is not supported` | Streamlit's rule: a fragment writes to its caller's container | Already fixed in `frontend-test/_shared.py`; pull latest |
 | `image file is truncated` / `Empty image buffer (zero bytes)` in worker logs | Partial Drive uploads or zero-byte files | Expected. Logged as `invalid_image` in the `file_status` table; visible on the Analytics page's *Browse files* with `outcome=invalid_image`. |
 | Active Sync widget never appears | Worker is processing but `active_sync_job_id` Redis key wasn't set | Fall back to `make logs-worker`; if a job is running, manually set the key with `make redis-cli` then `SET sync:active_job_id <job_id>` (or wait for the next sync — `enqueue_sync` always sets it) |
 

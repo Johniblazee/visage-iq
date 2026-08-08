@@ -100,7 +100,6 @@ services:
     region: oregon
     dockerfilePath: ./Dockerfile.ui
     dockerContext: .
-    dockerCommand: streamlit run frontend/streamlit_app.py --server.address=0.0.0.0 --server.port=$PORT --browser.gatherUsageStats=false
     autoDeploy: true
     envVars:
       - key: API_BASE_URL

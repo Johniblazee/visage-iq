@@ -68,6 +68,19 @@ services:
     restart: unless-stopped
     environment:
       API_BASE_URL: http://api:8000
+      PORT: "3000"
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+  ui-streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: http://api:8000
     depends_on:
       - api
     ports:

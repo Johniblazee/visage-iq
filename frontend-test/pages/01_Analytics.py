@@ -5,7 +5,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-# Ensure the parent `frontend/` directory is on sys.path so the shared
+# Ensure the parent `frontend-test/` directory is on sys.path so the shared
 # helpers module is importable when this page is loaded by Streamlit's
 # multi-page router.
 _FRONTEND_DIR = str(Path(__file__).resolve().parent.parent)
