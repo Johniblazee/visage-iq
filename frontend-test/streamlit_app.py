@@ -32,6 +32,27 @@ def _verdict(similarity: float, match_t: float, review_t: float) -> str:
     return "NO_MATCH"
 
 
+# Mirrors backend/scoring.py — keep in sync. Raw cosine never reaches 1.0, so
+# rescale for display: impostor ceiling -> 0%, review -> 50%, match -> 75%,
+# genuine ceiling -> 100%. Computed client-side so the sliders stay consistent.
+def _confidence_pct(similarity: float, match_t: float, review_t: float) -> float:
+    xs = [0.23, review_t, match_t, 0.85]
+    ys = [0.0, 50.0, 75.0, 100.0]
+    for i in range(1, 4):
+        xs[i] = max(xs[i], xs[i - 1] + 1e-6)
+    if similarity <= xs[0]:
+        return 0.0
+    for x0, x1, y0, y1 in zip(xs, xs[1:], ys, ys[1:]):
+        if similarity <= x1:
+            return y0 + (similarity - x0) / (x1 - x0) * (y1 - y0)
+    return 100.0
+
+
+def _det_pct(det_score: float) -> float:
+    # SCRFD det_score: floor 0.5 (det_thresh), empirical ceiling ~0.95.
+    return max(0.0, min(1.0, (det_score - 0.5) / 0.45)) * 100.0
+
+
 def _draw_bbox(image: Image.Image, bbox: list[int]) -> Image.Image:
     annotated = image.copy()
     draw = ImageDraw.Draw(annotated)
@@ -77,7 +98,7 @@ def _fetch_candidate_bytes(file_id: str) -> bytes | None:
 
 def _render_candidate(idx: int, cand: dict, match_t: float, review_t: float) -> None:
     similarity = cand["similarity"]
-    confidence = max(0.0, similarity) * 100.0
+    confidence = _confidence_pct(similarity, match_t, review_t)
     verdict = _verdict(similarity, match_t, review_t)
     color = VERDICT_COLORS.get(verdict, "#64748b")
     with st.container(border=True):
@@ -91,7 +112,7 @@ def _render_candidate(idx: int, cand: dict, match_t: float, review_t: float) -> 
         with cols[1]:
             st.markdown(f"**#{idx + 1} — {cand['title']}**")
             st.markdown(f"Confidence: **{confidence:.1f}%**")
-            st.progress(max(0.0, min(1.0, similarity)))
+            st.progress(confidence / 100.0)
             st.markdown(
                 f"<span style='background:{color};color:white;padding:2px 10px;"
                 f"border-radius:4px;font-weight:600;font-size:0.85em'>"
@@ -367,7 +388,7 @@ def main() -> None:
         if selected_face:
             st.caption(
                 f"Showing face {selected_face_idx + 1} of {face_count} · "
-                f"Detection score: {selected_face['det_score']:.3f}"
+                f"Detection quality: {_det_pct(selected_face['det_score']):.0f}%"
             )
 
     with right:
@@ -401,7 +422,7 @@ def main() -> None:
         candidates = (selected_face or {}).get("candidates", [])[:top_k]
         if candidates:
             top_sim = candidates[0]["similarity"]
-            top_pct = max(0.0, top_sim) * 100.0
+            top_pct = _confidence_pct(top_sim, match_t, review_t)
             top_verdict = _verdict(top_sim, match_t, review_t)
             top_color = VERDICT_COLORS.get(top_verdict, "#64748b")
             st.markdown(

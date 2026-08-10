@@ -30,7 +30,7 @@ from backend.embedding import (
 )
 from backend.gdrive import DriveError, download_bytes, get_metadata
 from backend.queue import enqueue_retry, enqueue_sync, fetch_job
-from backend import analytics
+from backend import analytics, scoring
 from backend.schemas import (
     AnalyticsSummary,
     Candidate,
@@ -131,7 +131,9 @@ def _search(result: EmbeddingResult, top_k: int) -> list[Candidate]:
                 drive_file_id=file_id,
                 title=title,
                 similarity=sim_f,
-                confidence_pct=round(max(0.0, min(1.0, sim_f)) * 100.0, 1),
+                confidence_pct=scoring.confidence_pct(
+                    sim_f, settings.review_threshold, settings.match_threshold
+                ),
                 verdict=_verdict(sim_f),
             )
         )

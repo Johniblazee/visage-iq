@@ -210,12 +210,20 @@ API response (`/match`):
       "drive_file_id": "1AbC...",
       "title": "passport_jane_doe.jpg",
       "similarity": 0.71,
-      "confidence_pct": 71.0,
+      "confidence_pct": 92.2,
       "verdict": "MATCH"
     }
   ]
 }
 ```
+
+`similarity` is the raw ArcFace cosine — the unit thresholds are defined in.
+`confidence_pct` is a normalized display score ([backend/scoring.py](backend/scoring.py)):
+raw cosine never reaches 1.0 (impostor pairs ≤ ~0.23, genuine pairs ~0.45–0.85),
+so it is rescaled piecewise-linearly — impostor ceiling 0.23 → 0%,
+`REVIEW_THRESHOLD` → 50%, `MATCH_THRESHOLD` → 75%, genuine ceiling 0.85 → 100%.
+Detection scores shown in the UIs are likewise rescaled from det_score's
+practical range [0.5, 0.95].
 
 `/health` reports more than just liveness — it carries `enrolled_count`, `drive_total`, `last_sync_finished_at`, and `active_sync_job_id` for the sidebar widgets.
 

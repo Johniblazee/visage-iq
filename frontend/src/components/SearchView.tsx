@@ -42,6 +42,25 @@ export default function SearchView({ active }: { active: boolean }) {
     if (similarity >= reviewThreshold) return "REVIEW";
     return "NO_MATCH";
   }
+  // Mirrors backend/scoring.py — keep in sync. Raw cosine never reaches 1.0,
+  // so rescale for display: impostor ceiling -> 0%, review -> 50%,
+  // match -> 75%, genuine ceiling -> 100%.
+  function confidencePct(similarity: number) {
+    const xs = [0.23, reviewThreshold, matchThreshold, 0.85];
+    const ys = [0, 50, 75, 100];
+    for (let i = 1; i < 4; i++) xs[i] = Math.max(xs[i], xs[i - 1] + 1e-6);
+    if (similarity <= xs[0]) return 0;
+    for (let i = 1; i < 4; i++) {
+      if (similarity <= xs[i]) {
+        return ys[i - 1] + ((similarity - xs[i - 1]) / (xs[i] - xs[i - 1])) * (ys[i] - ys[i - 1]);
+      }
+    }
+    return 100;
+  }
+  // SCRFD det_score: floor 0.5 (det_thresh), empirical ceiling ~0.95.
+  function detPct(detScore: number) {
+    return Math.max(0, Math.min(1, (detScore - 0.5) / 0.45)) * 100;
+  }
   function verdictBadge(similarity: number) {
     const label = verdict(similarity);
     return (
@@ -260,7 +279,7 @@ export default function SearchView({ active }: { active: boolean }) {
                   <span>
                     Face {selectedFaceIndex + 1} of {faces.length}
                   </span>
-                  <span>Detection {selectedFace.det_score.toFixed(3)}</span>
+                  <span>Detection {detPct(selectedFace.det_score).toFixed(0)}%</span>
                   {matchData.query_rotation ? <span>Rotation {matchData.query_rotation}deg</span> : null}
                 </div>
               )}
@@ -316,7 +335,7 @@ export default function SearchView({ active }: { active: boolean }) {
                 <div className="flex items-center gap-3 rounded-lg border bg-muted/50 p-3">
                   <span className="text-sm text-muted-foreground">Top match</span>
                   <strong className="text-2xl">
-                    {Math.max(0, topCandidate.similarity * 100).toFixed(1)}%
+                    {confidencePct(topCandidate.similarity).toFixed(1)}%
                   </strong>
                   {verdictBadge(topCandidate.similarity)}
                 </div>
@@ -337,12 +356,12 @@ export default function SearchView({ active }: { active: boolean }) {
                       <strong className="min-w-0 break-words font-medium">
                         #{index + 1} {candidate.title}
                       </strong>
-                      <span>{Math.max(0, candidate.similarity * 100).toFixed(1)}%</span>
+                      <span>{confidencePct(candidate.similarity).toFixed(1)}%</span>
                     </div>
                     <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full bg-primary"
-                        style={{ width: `${Math.max(0, Math.min(100, candidate.similarity * 100))}%` }}
+                        style={{ width: `${confidencePct(candidate.similarity)}%` }}
                       />
                     </div>
                     {verdictBadge(candidate.similarity)}
