@@ -348,6 +348,7 @@ p {
   gap: var(--s-6);
   max-width: 1360px;
   width: 100%;
+  margin-inline: auto;
 }
 .page-head {
   display: flex;
@@ -731,6 +732,16 @@ td:first-child {
   color: var(--txt-1);
   font-weight: 600;
 }
+.table-scroll {
+  overflow: auto;
+}
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-1);
+  padding-top: var(--s-3);
+}
 .stats-band {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -778,4 +789,165 @@ td:first-child {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--s-4);
+}
+
+/* ── chips & search field (students page) ────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--txt-2);
+  font: inherit;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.chip:hover {
+  border-color: var(--line-strong);
+  color: var(--txt-1);
+}
+.chip[aria-pressed="true"] {
+  background: var(--miva-blue);
+  border-color: var(--miva-blue);
+  color: #fff;
+}
+[data-theme="dark"] .chip[aria-pressed="true"] {
+  background: var(--miva-blue-deep);
+  border-color: var(--miva-blue-bright);
+}
+.searchbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-4);
+  height: 52px;
+  background: var(--surface-1);
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-md);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.searchbar:focus-within {
+  border-color: var(--miva-blue);
+}
+[data-theme="dark"] .searchbar:focus-within {
+  border-color: var(--miva-blue-bright);
+}
+.searchbar input {
+  flex: 1;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--txt-1);
+  outline: none;
+  min-width: 0;
+}
+.searchbar input::placeholder {
+  color: var(--txt-3);
+}
+[data-theme="dark"] .searchbar input {
+  background: none !important;
+  border: 0 !important;
+}
+
+/* ── student grid ────────────────────────────────────────── */
+.stud-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--s-4);
+}
+.stud {
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.stud:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-md);
+}
+.stud-photo {
+  aspect-ratio: 4/5;
+  background: var(--surface-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 700;
+  color: var(--miva-blue);
+  position: relative;
+}
+.stud-body {
+  padding: var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stud-name {
+  font-family: var(--font-display);
+  font-size: var(--text-body);
+  font-weight: 700;
+  line-height: 1.2;
+}
+.stud-line {
+  font-size: var(--text-caption);
+  color: var(--txt-3);
+}
+
+/* ── drawer ──────────────────────────────────────────────── */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 49, 79, 0.6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  z-index: 40;
+  animation: fade var(--dur-mid) var(--ease-out);
+}
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(460px, 100%);
+  background: var(--surface-1);
+  border-left: 1px solid var(--line);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  animation: slide var(--dur-mid) var(--ease-out);
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes slide {
+  from {
+    transform: translateX(24px);
+    opacity: 0.4;
+  }
+}
+.drawer-body {
+  overflow-y: auto;
+  padding: var(--s-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
 }

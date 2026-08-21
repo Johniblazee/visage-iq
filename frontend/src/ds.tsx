@@ -60,6 +60,20 @@ const GLYPHS: Record<string, ReactNode> = {
   ),
   chevronLeft: <polyline points="15 6 9 12 15 18" />,
   chevronRight: <polyline points="9 6 15 12 9 18" />,
+  user: (
+    <>
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </>
+  ),
+  fileText: (
+    <>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="13" y2="17" />
+    </>
+  ),
 };
 
 export function Icon({
@@ -109,6 +123,37 @@ export function MivaMark({ height = 30 }: { height?: number }) {
       <path d="M95.8173 3.97998L48.3141 82.7015V49.5485L95.8173 3.97998Z" fill="#E43B31" />
       <path d="M94.084 0L48.3171 42.5932V24.858L94.084 0Z" fill="white" />
     </svg>
+  );
+}
+
+/* ── Badge ───────────────────────────────────────────────── */
+const BADGE_TONES: Record<string, CSSProperties> = {
+  neutral: { background: "var(--surface-3)", color: "var(--txt-2)" },
+  blue: { background: "rgba(9,49,79,0.08)", color: "var(--miva-blue)" },
+  red: { background: "rgba(228,59,49,0.10)", color: "var(--miva-red-mid)" },
+  gold: { background: "var(--miva-gold-soft)", color: "var(--miva-gold-deep)" },
+};
+export function Badge({ tone = "neutral", children }: { tone?: keyof typeof BADGE_TONES; children: ReactNode }) {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  return (
+    <span
+      style={{
+        ...BADGE_TONES[tone],
+        ...(dark && tone === "blue" ? { background: "rgba(255,255,255,0.14)", color: "#fff" } : null),
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "var(--s-1)",
+        padding: "5px 12px",
+        borderRadius: "var(--r-pill)",
+        fontFamily: "var(--font-body)",
+        fontSize: "var(--text-caption)",
+        fontWeight: 600,
+        lineHeight: 1.3,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
   );
 }
 

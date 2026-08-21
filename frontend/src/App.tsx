@@ -3,10 +3,11 @@ import { apiRequest, errorMessage, type Health, type SyncJob, type WorkerStatus 
 import AnalyticsPage from "./components/AnalyticsPage";
 import SearchPage from "./components/SearchPage";
 import SettingsPage from "./components/SettingsPage";
+import StudentsPage from "./components/StudentsPage";
 import { Icon, MivaMark } from "./ds";
 import { formatNumber, relativeTime } from "./format";
 
-export type Tab = "search" | "analytics" | "settings";
+export type Tab = "search" | "students" | "analytics" | "settings";
 
 export interface Cfg {
   match: number;
@@ -22,6 +23,7 @@ export const DEFAULT_CFG: Cfg = {
 
 const NAV: [Tab, string, string][] = [
   ["search", "Face search", "search"],
+  ["students", "Student search", "user"],
   ["analytics", "Analytics", "grid"],
   ["settings", "Settings", "shield"],
 ];
@@ -231,6 +233,7 @@ export default function App() {
           </div>
         </header>
         {page === "search" && <SearchPage cfg={cfg} model={health?.model} onNav={setPage} />}
+        {page === "students" && <StudentsPage onNav={setPage} />}
         {page === "analytics" && <AnalyticsPage activeSync={activeSync} onOpsChanged={refreshOps} />}
         {page === "settings" && (
           <SettingsPage

@@ -277,7 +277,7 @@ export default function AnalyticsPage({
               </div>
             </Panel>
             <Panel title="By file extension" meta={`${sortedExtensions.length} types seen`} pad={false}>
-              <div style={{ padding: "var(--s-4) var(--s-2)", maxHeight: 320, overflowY: "auto" }}>
+              <div className="table-scroll" style={{ padding: "var(--s-4) var(--s-2)", maxHeight: 320 }}>
                 <table>
                   <thead>
                     <tr>
@@ -313,7 +313,7 @@ export default function AnalyticsPage({
           </div>
 
           <Panel title="Outcome by extension" meta="Counts per extension across every outcome" pad={false}>
-            <div style={{ padding: "var(--s-4) var(--s-2)", overflowX: "auto" }}>
+            <div className="table-scroll" style={{ padding: "var(--s-4) var(--s-2)", maxHeight: 320 }}>
               <table>
                 <thead>
                   <tr>
@@ -413,7 +413,7 @@ export default function AnalyticsPage({
                 />
               </div>
               {retryMessage && <div className="muted">{retryMessage}</div>}
-              <div style={{ overflowX: "auto" }}>
+              <div className="table-scroll" style={{ maxHeight: 480 }}>
                 <table>
                   <thead>
                     <tr>
