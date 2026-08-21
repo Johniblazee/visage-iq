@@ -1,20 +1,12 @@
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import type { Cfg, Tab } from "../App";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
+import type { Cfg } from "../App";
 import { apiRequest, apiUrl, errorMessage, type MatchResponse } from "../api";
 import { Button, Icon, Panel, ScoreBar, Verdict, verdictOf } from "../ds";
 import { formatNumber } from "../format";
 
 const FETCH_TOP_K = 20;
 
-export default function SearchPage({
-  cfg,
-  model,
-  onNav,
-}: {
-  cfg: Cfg;
-  model?: string;
-  onNav: (tab: Tab) => void;
-}) {
+export default function SearchPage({ cfg }: { cfg: Cfg }) {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadUrl, setUploadUrl] = useState("");
   const [matchData, setMatchData] = useState<MatchResponse | null>(null);
@@ -25,6 +17,7 @@ export default function SearchPage({
   const [drag, setDrag] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const searchedRef = useRef<File | null>(null);
 
   const faces = matchData?.faces || [];
   const selectedFace = faces[selectedFaceIndex] || null;
@@ -104,14 +97,25 @@ export default function SearchPage({
     setSelectedFaceIndex((index) => Math.min(Math.max(index + delta, 0), Math.max(faces.length - 1, 0)));
   }
 
+  // Search starts as soon as an image is picked or dropped — no extra click.
+  // The ref keeps StrictMode's double effect run from firing the POST twice.
+  useEffect(() => {
+    if (uploadFile && searchedRef.current !== uploadFile) {
+      searchedRef.current = uploadFile;
+      runMatch();
+    }
+  }, [uploadFile]);
+
   // Draw the uploaded image (rotated the way the API saw it) plus the
   // selected face's bounding box. Runs after every match / face change.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !matchData || !uploadUrl) return;
     const face = matchData.faces?.[selectedFaceIndex] || null;
+    let stale = false;
     const img = new Image();
     img.onload = () => {
+      if (stale) return;
       const rotation = matchData.query_rotation || 0;
       const swap = rotation === 90 || rotation === 270;
       const ctx = canvas.getContext("2d");
@@ -140,9 +144,12 @@ export default function SearchPage({
       setCanvasError("");
     };
     img.onerror = () => {
-      setCanvasError("Preview unavailable in this browser. The API search result is still valid.");
+      if (!stale) setCanvasError("Preview unavailable in this browser. The API search result is still valid.");
     };
     img.src = uploadUrl;
+    return () => {
+      stale = true;
+    };
   }, [matchData, selectedFaceIndex, uploadUrl]);
 
   const bboxSize =
@@ -153,7 +160,16 @@ export default function SearchPage({
   const dropzone = (label: string) => (
     <div
       className={"dropzone" + (drag ? " drag" : "")}
+      role="button"
+      tabIndex={0}
+      aria-label={label}
       onClick={() => fileInputRef.current?.click()}
+      onKeyDown={(e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          fileInputRef.current?.click();
+        }
+      }}
       onDragOver={(e) => {
         e.preventDefault();
         setDrag(true);
@@ -200,23 +216,6 @@ export default function SearchPage({
             {isMatching ? "Searching…" : matchData ? "Search again" : "Search"}
           </Button>
         </div>
-      </div>
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <div className="row">
-          <span className="tag">Match ≥ {cfg.match.toFixed(2)}</span>
-          <span className="tag">Review ≥ {cfg.review.toFixed(2)}</span>
-          <span className="tag">Top K {cfg.topK}</span>
-          {model && <span className="tag">{model}</span>}
-        </div>
-        <a
-          href="#settings"
-          onClick={(e) => {
-            e.preventDefault();
-            onNav("settings");
-          }}
-        >
-          Change in settings
-        </a>
       </div>
       {matchError && <div className="alert">{matchError}</div>}
       <div className="grid-2">

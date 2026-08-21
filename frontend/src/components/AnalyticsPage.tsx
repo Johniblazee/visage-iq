@@ -87,6 +87,7 @@ export default function AnalyticsPage({
       setFilesLoading(true);
       setSelectedFileIds(new Set());
       setRetryMessage("");
+      setFilePage((page) => ({ ...page, rows: [] }));
       const params = new URLSearchParams({
         limit: String(fileQuery.pageSize),
         offset: String(fileQuery.offset),

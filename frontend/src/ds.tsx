@@ -1,6 +1,6 @@
 /* Miva design-system primitives + VisageIQ shared components, ported from the
    Claude Design project (miva-design-system _ds_bundle.js + visageiq/shared.jsx). */
-import { type CSSProperties, type ReactNode, useState } from "react";
+import { type CSSProperties, type ReactNode, useId, useState } from "react";
 
 /* ── Icon ────────────────────────────────────────────────── */
 const GLYPHS: Record<string, ReactNode> = {
@@ -268,10 +268,16 @@ export function Input({
   style?: CSSProperties;
 }) {
   const [focus, setFocus] = useState(false);
+  const id = useId();
   return (
     <div style={{ display: "block", ...style }}>
-      {label && <label style={labelStyle}>{label}</label>}
+      {label && (
+        <label htmlFor={id} style={labelStyle}>
+          {label}
+        </label>
+      )}
       <input
+        id={id}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
@@ -313,12 +319,18 @@ export function Select({
   style?: CSSProperties;
 }) {
   const [focus, setFocus] = useState(false);
+  const id = useId();
   const items = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
   return (
     <div style={{ display: "block", ...style }}>
-      {label && <label style={labelStyle}>{label}</label>}
+      {label && (
+        <label htmlFor={id} style={labelStyle}>
+          {label}
+        </label>
+      )}
       <div style={{ position: "relative" }}>
         <select
+          id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => setFocus(true)}
@@ -373,12 +385,15 @@ export function Checkbox({
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
+  const [focus, setFocus] = useState(false);
   return (
     <label style={{ display: "flex", gap: "var(--s-3)", alignItems: "center", cursor: "pointer" }}>
       <input
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
+        onFocus={() => setFocus(true)}
+        onBlur={() => setFocus(false)}
         style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}
       />
       <span
@@ -391,6 +406,7 @@ export function Checkbox({
           border: `1.5px solid ${checked ? "var(--miva-blue)" : "var(--border-2)"}`,
           display: "grid",
           placeItems: "center",
+          boxShadow: focus ? "0 0 0 3px color-mix(in srgb, var(--miva-blue-bright) 45%, transparent)" : undefined,
           transition: "background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out)",
         }}
       >

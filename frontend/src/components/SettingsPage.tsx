@@ -37,10 +37,9 @@ export default function SettingsPage({
   const set = (key: keyof Cfg, value: number) => setCfg({ ...cfg, [key]: value });
   const workerRunning = worker ? !worker.suspended : false;
   const syncing = activeSync && ["queued", "running"].includes(activeSync.status);
-  const coverage =
-    health?.drive_total && health.enrolled_count
-      ? ((health.enrolled_count / health.drive_total) * 100).toFixed(1) + "%"
-      : "—";
+  const coverage = health?.drive_total
+    ? ((health.enrolled_count / health.drive_total) * 100).toFixed(1) + "%"
+    : "—";
   const pending =
     health?.drive_total != null ? Math.max(0, health.drive_total - (health.enrolled_count || 0)) : null;
 

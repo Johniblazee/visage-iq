@@ -37,7 +37,10 @@ function loadCfg(): Cfg {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Tab>(() => (localStorage.getItem("visageiq-page") as Tab) || "search");
+  const [page, setPage] = useState<Tab>(() => {
+    const saved = localStorage.getItem("visageiq-page");
+    return NAV.some(([key]) => key === saved) ? (saved as Tab) : "search";
+  });
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("visageiq-collapsed") === "1");
   const [theme, setTheme] = useState(() => localStorage.getItem("visageiq-theme") || "light");
   const [cfg, setCfg] = useState<Cfg>(loadCfg);
@@ -133,10 +136,9 @@ export default function App() {
 
   const dark = theme === "dark";
   const workerRunning = worker ? !worker.suspended : false;
-  const coverage =
-    health?.drive_total && health.enrolled_count
-      ? ((health.enrolled_count / health.drive_total) * 100).toFixed(1) + "%"
-      : null;
+  const coverage = health?.drive_total
+    ? ((health.enrolled_count / health.drive_total) * 100).toFixed(1) + "%"
+    : null;
   const syncing = activeSync && ["queued", "running"].includes(activeSync.status);
 
   return (
@@ -232,7 +234,7 @@ export default function App() {
             )}
           </div>
         </header>
-        {page === "search" && <SearchPage cfg={cfg} model={health?.model} onNav={setPage} />}
+        {page === "search" && <SearchPage cfg={cfg} />}
         {page === "students" && <StudentsPage onNav={setPage} />}
         {page === "analytics" && <AnalyticsPage activeSync={activeSync} onOpsChanged={refreshOps} />}
         {page === "settings" && (
