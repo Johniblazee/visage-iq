@@ -147,7 +147,7 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
   const [centre, setCentre] = useState("");
   const [status, setStatus] = useState("");
   const [photosOnly, setPhotosOnly] = useState(false);
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
   const [open, setOpen] = useState<Student | null>(null);
 
   const faculties = [...new Set(STUDENTS.map((s) => s.faculty))];

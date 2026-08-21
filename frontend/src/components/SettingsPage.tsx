@@ -88,7 +88,7 @@ export default function SettingsPage({
                   max={0.95}
                   step={0.01}
                   onChange={(value) => set("match", Math.max(value, cfg.review + 0.01))}
-                  format={(value) => value.toFixed(2)}
+                  format={(value) => (value * 100).toFixed(0) + "%"}
                 />
               </SettingRow>
               <SettingRow
@@ -101,7 +101,7 @@ export default function SettingsPage({
                   max={0.9}
                   step={0.01}
                   onChange={(value) => set("review", Math.min(value, cfg.match - 0.01))}
-                  format={(value) => value.toFixed(2)}
+                  format={(value) => (value * 100).toFixed(0) + "%"}
                 />
               </SettingRow>
               <SettingRow
@@ -184,6 +184,34 @@ export default function SettingsPage({
                   </Button>
                 </div>
               </SettingRow>
+              {syncing && (
+                <div style={{ padding: "var(--s-5) 0", borderTop: "1px solid var(--line)" }}>
+                  <div className="row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontWeight: 600, color: "var(--txt-1)" }}>
+                      Sync job {activeSync?.job_id.slice(0, 8)}
+                      {activeSync?.progress?.phase ? ` · ${activeSync.progress.phase}` : ""}
+                    </span>
+                    <span className="muted">
+                      {activeSync?.progress?.total
+                        ? `${formatNumber(activeSync.progress.current)} of ${formatNumber(activeSync.progress.total)}`
+                        : activeSync?.progress?.listed
+                          ? `${formatNumber(activeSync.progress.listed)} files listed`
+                          : activeSync?.status}
+                    </span>
+                  </div>
+                  <div className="score-track">
+                    <div
+                      className="score-fill"
+                      style={{
+                        width: activeSync?.progress?.total
+                          ? Math.min(100, ((activeSync.progress.current || 0) / activeSync.progress.total) * 100) + "%"
+                          : "4%",
+                        background: "var(--miva-blue)",
+                      }}
+                    ></div>
+                  </div>
+                </div>
+              )}
               <SettingRow
                 title="Force unlock"
                 desc="Clears a stale job lock left behind by a crashed worker. Use only when no worker is running."
@@ -217,7 +245,7 @@ export default function SettingsPage({
                   kind="primary"
                   size="sm"
                   disabled={!!syncing}
-                  iconLeft={<Icon name="arrowRight" size={16} />}
+                  iconLeft={<Icon name="refresh" size={16} />}
                   onClick={() => onSync(prune)}
                 >
                   {syncing ? "Sync running…" : "Sync now"}

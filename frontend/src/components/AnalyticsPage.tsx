@@ -181,7 +181,7 @@ export default function AnalyticsPage({
             kind="ghost"
             size="sm"
             disabled={analyticsLoading}
-            iconLeft={<Icon name="arrowRight" size={16} />}
+            iconLeft={<Icon name="refresh" size={16} />}
             onClick={loadAnalytics}
           >
             {analyticsLoading ? "Refreshing…" : "Refresh"}
