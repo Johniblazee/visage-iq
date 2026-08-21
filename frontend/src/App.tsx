@@ -1,19 +1,63 @@
 import { useEffect, useState } from "react";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { apiRequest, errorMessage, type Health, type SyncJob, type WorkerStatus } from "./api";
-import AnalyticsView from "./components/AnalyticsView";
-import AppSidebar from "./components/AppSidebar";
-import SearchView from "./components/SearchView";
+import AnalyticsPage from "./components/AnalyticsPage";
+import SearchPage from "./components/SearchPage";
+import SettingsPage from "./components/SettingsPage";
+import { Icon, MivaMark } from "./ds";
+import { formatNumber, relativeTime } from "./format";
 
-export type Tab = "search" | "analytics";
+export type Tab = "search" | "analytics" | "settings";
+
+export interface Cfg {
+  match: number;
+  review: number;
+  topK: number;
+}
+
+export const DEFAULT_CFG: Cfg = {
+  match: Number(import.meta.env.VITE_DEFAULT_MATCH || 0.5),
+  review: Number(import.meta.env.VITE_DEFAULT_REVIEW || 0.4),
+  topK: 4,
+};
+
+const NAV: [Tab, string, string][] = [
+  ["search", "Face search", "search"],
+  ["analytics", "Analytics", "grid"],
+  ["settings", "Settings", "shield"],
+];
+
+function loadCfg(): Cfg {
+  try {
+    return { ...DEFAULT_CFG, ...JSON.parse(localStorage.getItem("visageiq-cfg") || "{}") };
+  } catch {
+    return DEFAULT_CFG;
+  }
+}
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("search");
+  const [page, setPage] = useState<Tab>(() => (localStorage.getItem("visageiq-page") as Tab) || "search");
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("visageiq-collapsed") === "1");
+  const [theme, setTheme] = useState(() => localStorage.getItem("visageiq-theme") || "light");
+  const [cfg, setCfg] = useState<Cfg>(loadCfg);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState("");
   const [worker, setWorker] = useState<WorkerStatus | null>(null);
   const [activeSync, setActiveSync] = useState<SyncJob | null>(null);
   const [syncError, setSyncError] = useState("");
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("visageiq-theme", theme);
+  }, [theme]);
+  useEffect(() => {
+    localStorage.setItem("visageiq-page", page);
+  }, [page]);
+  useEffect(() => {
+    localStorage.setItem("visageiq-collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
+  useEffect(() => {
+    localStorage.setItem("visageiq-cfg", JSON.stringify(cfg));
+  }, [cfg]);
 
   async function loadHealth() {
     try {
@@ -85,29 +129,123 @@ export default function App() {
     }
   }
 
+  const dark = theme === "dark";
+  const workerRunning = worker ? !worker.suspended : false;
+  const coverage =
+    health?.drive_total && health.enrolled_count
+      ? ((health.enrolled_count / health.drive_total) * 100).toFixed(1) + "%"
+      : null;
+  const syncing = activeSync && ["queued", "running"].includes(activeSync.status);
+
   return (
-    <SidebarProvider>
-      <AppSidebar
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        health={health}
-        healthError={healthError}
-        worker={worker}
-        onToggleWorker={toggleWorker}
-        activeSync={activeSync}
-        syncError={syncError}
-        onSync={triggerSync}
-        onForceUnlock={forceUnlock}
-      />
-      <SidebarInset>
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-          <SidebarTrigger className="-ml-1" />
-        </header>
-        <div className="min-w-0 p-4 sm:p-6">
-          <SearchView active={activeTab === "search"} />
-          <AnalyticsView active={activeTab === "analytics"} onOpsChanged={refreshOps} />
+    <div className={"app" + (collapsed ? " collapsed" : "")}>
+      <aside className="side">
+        <div className="side-top">
+          <MivaMark height={30} />
+          <div className="hide-collapsed" style={{ minWidth: 0 }}>
+            <div className="side-title">VisageIQ</div>
+            <div className="side-sub">Face match operations</div>
+          </div>
         </div>
-      </SidebarInset>
-    </SidebarProvider>
+        <nav className="nav">
+          {NAV.map(([key, label, icon]) => (
+            <button
+              key={key}
+              className="nav-item"
+              aria-current={page === key ? "page" : undefined}
+              onClick={() => setPage(key)}
+              title={label}
+            >
+              <span className="nav-rail"></span>
+              <Icon name={icon} size={18} />
+              <span className="hide-collapsed">{label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="side-foot">
+          <div className="row" style={{ gap: "var(--s-2)", flexWrap: "nowrap" }}>
+            <button className="icon-btn on-dark" onClick={() => setCollapsed(!collapsed)} aria-label="Toggle sidebar">
+              <Icon name="menu" size={16} />
+            </button>
+            <button
+              className="icon-btn on-dark"
+              onClick={() => setTheme(dark ? "light" : "dark")}
+              aria-label="Toggle theme"
+            >
+              <Icon name={dark ? "sparkles" : "globe"} size={16} />
+            </button>
+            <span className="side-meta hide-collapsed">{dark ? "Dark" : "Light"} theme</span>
+          </div>
+        </div>
+      </aside>
+      <main className="main">
+        <header className="topbar">
+          <div className="row" style={{ gap: "var(--s-3)", flexWrap: "nowrap" }}>
+            <span className="eyebrow" style={{ color: "var(--txt-3)" }}>
+              VisageIQ
+            </span>
+            <span className="muted">/</span>
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 700,
+                fontSize: "var(--text-h4)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {NAV.find(([key]) => key === page)?.[1]}
+            </span>
+          </div>
+          <div className="status-strip">
+            {healthError ? (
+              <span className="pip">
+                <span className="dot" style={{ background: "var(--no)" }}></span>API unreachable
+              </span>
+            ) : (
+              <>
+                <span className="pip">
+                  <b>{formatNumber(health?.enrolled_count)}</b> enrolled
+                </span>
+                {coverage && (
+                  <span className="pip">
+                    <b>{coverage}</b> coverage
+                  </span>
+                )}
+                <span className="pip">
+                  <span
+                    className={"dot" + (workerRunning ? " live" : "")}
+                    style={{ background: workerRunning ? "var(--ok)" : "var(--miva-grey-3)" }}
+                  ></span>
+                  Worker {worker ? (workerRunning ? "running" : "paused") : "unknown"}
+                </span>
+                <span className="pip">
+                  <Icon name="clock" size={14} color="var(--txt-3)" />
+                  {syncing
+                    ? `Syncing ${activeSync?.progress?.current ?? "…"}${activeSync?.progress?.total ? ` of ${formatNumber(activeSync.progress.total)}` : ""}`
+                    : health?.last_sync_finished_at
+                      ? `Synced ${relativeTime(health.last_sync_finished_at)}`
+                      : "Never synced"}
+                </span>
+              </>
+            )}
+          </div>
+        </header>
+        {page === "search" && <SearchPage cfg={cfg} model={health?.model} onNav={setPage} />}
+        {page === "analytics" && <AnalyticsPage activeSync={activeSync} onOpsChanged={refreshOps} />}
+        {page === "settings" && (
+          <SettingsPage
+            cfg={cfg}
+            setCfg={setCfg}
+            health={health}
+            worker={worker}
+            activeSync={activeSync}
+            syncError={syncError}
+            onToggleWorker={toggleWorker}
+            onSync={triggerSync}
+            onForceUnlock={forceUnlock}
+          />
+        )}
+      </main>
+    </div>
   );
 }

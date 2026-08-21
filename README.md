@@ -76,9 +76,9 @@ make up        # docker compose up --build -d (~5–10 min on first build)
 make health    # smoke-test the api
 ```
 
-Open the React UI at http://localhost:3000. The sidebar nav has two tabs: **Search** (match flow) and **Analytics** (per-file outcomes from the last sync). Click **Sync now** in the sidebar to populate the database. Upload a photo to see matches. The Streamlit reference UI (`frontend-test/`) runs separately at http://localhost:8501.
+Open the React UI at http://localhost:3000. The sidebar nav has three pages: **Face search** (match flow), **Analytics** (per-file outcomes from the last sync), and **Settings** (thresholds, index health, worker and Drive sync controls). Go to **Settings → Drive sync → Sync now** to populate the database. Upload a photo to see matches. The Streamlit reference UI (`frontend-test/`) runs separately at http://localhost:8501.
 
-While a sync is running, an **Active Sync** widget appears in the sidebar with a live progress bar and counters; it follows you as you switch between pages.
+While a sync is running, the topbar status strip shows live progress counters; it follows you as you switch between pages.
 
 Run `make help` for the full list of shortcuts.
 
@@ -176,9 +176,9 @@ On Render, the same `GDRIVE_SA_JSON` env var is set on the **api** and **worker*
 ### From the UI
 
 1. Open http://localhost:3000.
-2. Sidebar → **Sync now** to import the Drive folder (one-time, then every 30 min automatically). The **Active Sync** panel appears in the sidebar with a live progress bar and counters; it stays visible if you switch to **Analytics**.
-3. Upload a portrait on the **Search** tab. Top-3 candidates render with thumbnails, confidence percentage, verdict badge, and a **Top match: NN%** summary line. Sliders in the Search header adjust the MATCH / REVIEW thresholds — verdict pills update live without re-querying.
-4. Open **Analytics** (sidebar nav) for a breakdown of every file the worker has seen: outcome counts (`enrolled` / `unchanged` / `no_face` / `invalid_image` / `drive_error` / `embed_error`), file-extension distribution, an outcome×ext matrix, and a paginated browser of skipped files with reasons (50/100/200/500 rows per page).
+2. **Settings → Drive sync → Sync now** to import the Drive folder (one-time, then every 30 min automatically). Sync progress shows live in the topbar status strip and in the Settings sync panel.
+3. Upload a portrait on **Face search**. Ranked candidates render with thumbnails, confidence percentage, verdict badge, and a **Top similarity** summary card. The MATCH / REVIEW thresholds and Top K live under **Settings → Matching** — verdict pills update live without re-querying.
+4. Open **Analytics** (sidebar nav) for a breakdown of every file the worker has seen: outcome counts (`enrolled` / `unchanged` / `no_face` / `invalid_image` / `drive_error` / `embed_error`), file-extension distribution, an outcome×ext matrix, and a paginated browser of skipped files with reasons (25/50/100/200 rows per page).
 
 ### From the API
 
@@ -225,7 +225,7 @@ so it is rescaled piecewise-linearly — impostor ceiling 0.23 → 0%,
 Detection scores shown in the UIs are likewise rescaled from det_score's
 practical range [0.5, 0.95].
 
-`/health` reports more than just liveness — it carries `enrolled_count`, `drive_total`, `last_sync_finished_at`, and `active_sync_job_id` for the sidebar widgets.
+`/health` reports more than just liveness — it carries `enrolled_count`, `drive_total`, `last_sync_finished_at`, and `active_sync_job_id` for the topbar status strip.
 
 OpenAPI docs are auto-generated at http://localhost:8000/docs.
 
