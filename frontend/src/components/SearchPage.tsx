@@ -18,6 +18,7 @@ export default function SearchPage({ cfg }: { cfg: Cfg }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const searchedRef = useRef<File | null>(null);
+  const requestRef = useRef(0);
 
   const faces = matchData?.faces || [];
   const selectedFace = faces[selectedFaceIndex] || null;
@@ -62,6 +63,7 @@ export default function SearchPage({ cfg }: { cfg: Cfg }) {
   }
 
   function clearSearch(clearFileInput = true) {
+    requestRef.current++; // invalidate any in-flight match response
     if (uploadUrl) URL.revokeObjectURL(uploadUrl);
     setUploadFile(null);
     setUploadUrl("");
@@ -74,6 +76,7 @@ export default function SearchPage({ cfg }: { cfg: Cfg }) {
 
   async function runMatch() {
     if (!uploadFile) return;
+    const reqId = ++requestRef.current;
     setIsMatching(true);
     setMatchError("");
     const form = new FormData();
@@ -83,13 +86,15 @@ export default function SearchPage({ cfg }: { cfg: Cfg }) {
         method: "POST",
         body: form,
       });
+      if (requestRef.current !== reqId) return; // superseded by a newer upload or clear
       setMatchData(data);
       setSelectedFaceIndex(0);
     } catch (error) {
+      if (requestRef.current !== reqId) return;
       setMatchData(null);
       setMatchError(errorMessage(error));
     } finally {
-      setIsMatching(false);
+      if (requestRef.current === reqId) setIsMatching(false);
     }
   }
 

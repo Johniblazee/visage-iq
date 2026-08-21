@@ -37,11 +37,18 @@ export default function SettingsPage({
   const set = (key: keyof Cfg, value: number) => setCfg({ ...cfg, [key]: value });
   const workerRunning = worker ? !worker.suspended : false;
   const syncing = activeSync && ["queued", "running"].includes(activeSync.status);
+  // drive_total: null = unknown (no sync yet), 0 = folder listed but empty.
+  const driveEmpty = health?.drive_total === 0;
   const coverage = health?.drive_total
     ? ((health.enrolled_count / health.drive_total) * 100).toFixed(1) + "%"
     : "—";
   const pending =
     health?.drive_total != null ? Math.max(0, health.drive_total - (health.enrolled_count || 0)) : null;
+  const coverageFoot = driveEmpty
+    ? "Drive folder is empty"
+    : pending != null
+      ? `${formatNumber(pending)} files pending`
+      : "Drive total unknown";
 
   return (
     <div className="page">
@@ -144,9 +151,7 @@ export default function SettingsPage({
                 <div className="stat-card">
                   <div className="stat-lab">Coverage</div>
                   <div className="stat-val">{coverage}</div>
-                  <div className="stat-foot">
-                    {pending != null ? `${formatNumber(pending)} files pending` : "Drive total unknown"}
-                  </div>
+                  <div className="stat-foot">{coverageFoot}</div>
                 </div>
               </div>
             </Panel>
