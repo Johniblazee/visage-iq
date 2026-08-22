@@ -179,6 +179,30 @@ p {
 .collapsed .hide-collapsed {
   display: none;
 }
+.collapsed .side {
+  padding-inline: var(--s-3);
+  align-items: center;
+}
+.collapsed .side-top {
+  justify-content: center;
+}
+.collapsed .nav {
+  width: 100%;
+}
+.collapsed .nav-item {
+  justify-content: center;
+  padding-inline: 0;
+}
+.collapsed .nav-rail {
+  display: none;
+}
+.collapsed .side-foot {
+  width: 100%;
+  align-items: center;
+}
+.collapsed .side-foot .row {
+  flex-direction: column;
+}
 
 /* ── sidebar ─────────────────────────────────────────────── */
 .side {
