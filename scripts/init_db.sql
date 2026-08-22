@@ -34,3 +34,15 @@ CREATE TABLE IF NOT EXISTS file_status (
 
 CREATE INDEX IF NOT EXISTS file_status_outcome_idx ON file_status (outcome);
 CREATE INDEX IF NOT EXISTS file_status_ext_idx     ON file_status (ext);
+
+-- Heal rows damaged by pre-48a3782 syncs: every resync used to UPSERT
+-- unchanged files as outcome='unchanged' with NULL reason/rotation/det_score,
+-- wiping the recorded enrolled/no_face/error details. Current sync code never
+-- writes 'unchanged' (it only bumps last_seen_at), so any such row is damage.
+-- Restore 'enrolled' + det_score from persons; failed files (no persons row)
+-- re-process on the next sync and rewrite their own records. Idempotent —
+-- bootstrap_schema runs this file on every worker start.
+UPDATE file_status fs
+SET outcome = 'enrolled', det_score = p.det_score
+FROM persons p
+WHERE p.drive_file_id = fs.drive_file_id AND fs.outcome = 'unchanged';

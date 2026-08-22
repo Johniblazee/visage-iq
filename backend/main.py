@@ -27,6 +27,7 @@ from backend.embedding import (
     embed,
     embed_many,
     get_app,
+    to_display_jpeg,
 )
 from backend.gdrive import DriveError, download_bytes, get_metadata
 from backend.queue import enqueue_retry, enqueue_sync, fetch_job
@@ -367,5 +368,12 @@ def get_image_bytes(file_id: str) -> Response:
         data = download_bytes(file_id)
     except DriveError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    set_image(file_id, modified_time, data)
-    return Response(content=data, media_type=mime)
+    try:
+        # Browsers can't render HEIC/HEIF/TIFF originals; serve a normalized JPEG.
+        jpeg = to_display_jpeg(data)
+        set_image(file_id, modified_time, jpeg)
+        return Response(content=jpeg, media_type="image/jpeg")
+    except Exception:
+        logger.warning("thumbnail transcode failed for %s; serving original bytes", file_id)
+        set_image(file_id, modified_time, data)
+        return Response(content=data, media_type=mime)

@@ -17,7 +17,9 @@ def get_redis() -> redis.Redis:
 
 
 def image_key(file_id: str, modified_time: str | None) -> str:
-    return f"gdrive:img:{file_id}:{modified_time or 'na'}"
+    # v2: entries hold transcoded display JPEGs, not Drive originals —
+    # the bump orphans stale original-bytes entries (they expire via TTL).
+    return f"gdrive:img:v2:{file_id}:{modified_time or 'na'}"
 
 
 def get_image(file_id: str, modified_time: str | None) -> bytes | None:

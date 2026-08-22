@@ -176,6 +176,22 @@ def _decode(image_bytes: bytes) -> np.ndarray:
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
 
+def to_display_jpeg(image_bytes: bytes, max_side: int = 512) -> bytes:
+    """Normalize an enrolled photo to a browser-safe JPEG thumbnail.
+
+    Browsers cannot render HEIC/HEIF/TIFF, so /image must not serve Drive
+    originals verbatim. Same Pillow decode path as _decode (pillow-heif is
+    registered above): EXIF orientation applied, longest side capped, JPEG out.
+    Raises on undecodable input (e.g. DNG) — caller falls back to the original.
+    """
+    with Image.open(io.BytesIO(image_bytes)) as pil:
+        pil = ImageOps.exif_transpose(pil).convert("RGB")
+        pil.thumbnail((max_side, max_side), Image.LANCZOS)
+        buf = io.BytesIO()
+        pil.save(buf, "JPEG", quality=85)
+        return buf.getvalue()
+
+
 def _rotate(img: np.ndarray, deg: int) -> np.ndarray:
     if deg == 0:
         return img
