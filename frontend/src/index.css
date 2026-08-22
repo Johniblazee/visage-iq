@@ -29,13 +29,14 @@
   --miva-grey-6: #f3f4f6;
   --miva-white: #ffffff;
 
-  --fg-1: var(--miva-blue);
-  --fg-2: var(--miva-grey-2);
-  --fg-3: var(--miva-grey-3);
+  /* Slate theme (option A): cool neutrals, navy reserved for data */
+  --fg-1: #0f172a;
+  --fg-2: #475569;
+  --fg-3: #94a3b8;
   --bg-page: var(--miva-white);
-  --bg-soft: var(--miva-gold-faint);
-  --border-1: var(--miva-grey-5);
-  --border-2: var(--miva-grey-4);
+  --bg-soft: #f8fafc;
+  --border-1: #e2e8f0;
+  --border-2: #cbd5e1;
   --accent-primary: var(--miva-red);
   --accent-warm: var(--miva-gold);
   --accent-info: var(--miva-inspire);
@@ -66,64 +67,149 @@
   --r-md: 12px;
   --r-lg: 16px;
   --r-pill: 999px;
-  --shadow-xs: 0 1px 2px rgba(9, 49, 79, 0.06);
-  --shadow-sm: 0 2px 6px rgba(9, 49, 79, 0.06), 0 1px 2px rgba(9, 49, 79, 0.04);
-  --shadow-md: 0 8px 24px rgba(9, 49, 79, 0.08), 0 2px 6px rgba(9, 49, 79, 0.04);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --dur-fast: 150ms;
   --dur-mid: 240ms;
   --dur-slow: 400ms;
 
-  /* ── VisageIQ surface layer ── */
+  /* ── VisageIQ surface layer — Slate light ── */
   --vq-sidebar: 264px;
   --vq-sidebar-collapsed: 72px;
   --surface-1: var(--miva-white);
-  --surface-2: var(--miva-gold-faint);
-  --surface-3: var(--miva-gold-soft);
+  --surface-2: #f8fafc;
+  --surface-3: #e2e8f0;
   --line: var(--border-1);
   --line-strong: var(--border-2);
+  --txt-1: #0f172a;
+  --txt-2: #475569;
+  --txt-3: #94a3b8;
+  --nav-bg: #0f172a;
+  --nav-fg: rgba(255, 255, 255, 0.72);
+  --nav-fg-active: #fff;
+  --nav-active: rgba(255, 255, 255, 0.14);
+  --ink: #0f172a; /* buttons/chips that used Deep Heritage Blue */
+  --focus: #0f172a; /* focused-field borders, checked checkbox */
+  --hero: var(--miva-blue); /* hero stat card — navy stays a data accent */
+  --bar: var(--miva-blue); /* chart/progress fills */
+  --shadow-card: var(--shadow-sm);
+  --ok: #047857;
+  --ok-bg: #d1fae5;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --no: var(--miva-red-mid);
+  --no-bg: #fee2e2;
+}
+/* ── Light palette: Warm paper (original Miva cream) ─────── */
+[data-theme="light"][data-lp="warm"] {
+  --surface-2: var(--miva-gold-faint);
+  --surface-3: var(--miva-gold-soft);
   --txt-1: var(--miva-blue);
   --txt-2: var(--miva-grey-2);
   --txt-3: var(--miva-grey-3);
   --nav-bg: var(--miva-blue);
-  --nav-fg: rgba(255, 255, 255, 0.76);
-  --nav-fg-active: #fff;
   --nav-active: rgba(255, 255, 255, 0.1);
-  --shadow-card: var(--shadow-sm);
+  --ink: var(--miva-blue);
+  --focus: var(--miva-blue);
+  --fg-1: var(--miva-blue);
+  --fg-2: var(--miva-grey-2);
+  --fg-3: var(--miva-grey-3);
+  --bg-soft: var(--miva-gold-faint);
+  --border-1: var(--miva-grey-5);
+  --border-2: var(--miva-grey-4);
   --ok: #1b7f5a;
   --ok-bg: #e4f6ee;
   --warn: #8a6a22;
   --warn-bg: #fdf3d9;
-  --no: var(--miva-red-mid);
   --no-bg: #fde7e5;
 }
+/* ── Light palette: Sand (Wisdom Gold-led) ───────────────── */
+[data-theme="light"][data-lp="sand"] {
+  --surface-2: #f1eae1;
+  --surface-3: #e6daca;
+  --txt-1: var(--miva-blue);
+  --txt-2: #5b5348;
+  --txt-3: #a79b8a;
+  --nav-bg: var(--miva-gold-deep);
+  --nav-active: rgba(255, 255, 255, 0.14);
+  --ink: var(--miva-gold-deep);
+  --focus: var(--miva-gold-deep);
+  --hero: var(--miva-gold-deep);
+  --bar: var(--miva-gold-deep);
+  --accent-warm: var(--miva-gold-deep);
+  --fg-1: var(--miva-blue);
+  --fg-2: #5b5348;
+  --fg-3: #a79b8a;
+  --bg-soft: #f1eae1;
+  --border-1: #e7ddcf;
+  --border-2: #d3c4ae;
+  --ok: #1b7f5a;
+  --ok-bg: #e4f6ee;
+  --warn: #8a6a22;
+  --warn-bg: #fdf3d9;
+  --no-bg: #fde7e5;
+}
+/* ── Dark shared + default palette: Slate (soft blue-grey) ─ */
 [data-theme="dark"] {
-  --surface-1: #0c2b44;
-  --surface-2: #082033;
-  --surface-3: #123c5c;
-  --line: rgba(255, 255, 255, 0.12);
+  --surface-1: #1b2537;
+  --surface-2: #0f172a;
+  --surface-3: #2e3b54;
+  --line: rgba(255, 255, 255, 0.1);
   --line-strong: rgba(255, 255, 255, 0.22);
-  --txt-1: #f2f6f9;
-  --txt-2: rgba(255, 255, 255, 0.72);
-  --txt-3: rgba(255, 255, 255, 0.52);
-  --nav-bg: #02223a;
-  --nav-fg: rgba(255, 255, 255, 0.68);
+  --txt-1: #f1f5f9;
+  --txt-2: rgba(241, 245, 249, 0.72);
+  --txt-3: rgba(241, 245, 249, 0.48);
+  --nav-bg: #0b1120;
+  --nav-fg: rgba(255, 255, 255, 0.6);
   --nav-fg-active: #fff;
-  --nav-active: rgba(255, 255, 255, 0.09);
+  --nav-active: rgba(255, 255, 255, 0.12);
+  --ink: #f1f5f9;
+  --focus: #459ef0;
+  --hero: #24344f;
+  --bar: #459ef0;
   --shadow-card: none;
-  --bg-page: #0c2b44;
-  --bg-soft: #082033;
-  --fg-1: #f2f6f9;
-  --fg-2: rgba(255, 255, 255, 0.72);
-  --fg-3: rgba(255, 255, 255, 0.52);
-  --border-1: rgba(255, 255, 255, 0.12);
+  --bg-page: #0f172a;
+  --bg-soft: #0f172a;
+  --fg-1: #f1f5f9;
+  --fg-2: rgba(241, 245, 249, 0.72);
+  --fg-3: rgba(241, 245, 249, 0.48);
+  --border-1: rgba(255, 255, 255, 0.1);
   --border-2: rgba(255, 255, 255, 0.22);
+  --accent-warm: #cbb59d;
   --ok: #5cdaaa;
   --ok-bg: rgba(92, 218, 170, 0.14);
   --warn: #fbd45b;
   --warn-bg: rgba(251, 212, 91, 0.14);
   --no: #ff8b84;
-  --no-bg: rgba(228, 59, 49, 0.18);
+  --no-bg: rgba(228, 59, 49, 0.2);
+}
+/* ── Dark palette: Ink (near-black for low-light rooms) ──── */
+[data-theme="dark"][data-dp="ink"] {
+  --surface-1: #151c2e;
+  --surface-2: #0b1120;
+  --surface-3: #26304a;
+  --nav-bg: #050914;
+  --hero: #1d2a44;
+  --bg-page: #0b1120;
+  --bg-soft: #0b1120;
+}
+/* ── Dark palette: Heritage navy (brand blue) ────────────── */
+[data-theme="dark"][data-dp="navy"] {
+  --surface-1: #0c2b44;
+  --surface-2: #082033;
+  --surface-3: #123c5c;
+  --txt-1: #f2f6f9;
+  --nav-bg: #02223a;
+  --nav-fg: rgba(255, 255, 255, 0.68);
+  --nav-active: rgba(255, 255, 255, 0.09);
+  --focus: var(--miva-blue-bright);
+  --hero: var(--miva-blue-deep);
+  --bar: var(--miva-blue-bright);
+  --bg-page: #082033;
+  --bg-soft: #082033;
+  --fg-1: #f2f6f9;
 }
 
 * {
@@ -455,7 +541,7 @@ p {
   color: var(--txt-1);
 }
 [data-theme="dark"] .main input[type="checkbox"] {
-  accent-color: var(--miva-blue-bright);
+  accent-color: var(--focus);
 }
 
 /* ── badges & tags ───────────────────────────────────────── */
@@ -781,8 +867,8 @@ td:first-child {
   gap: 6px;
 }
 .stat-card.hero {
-  background: var(--miva-blue);
-  border-color: var(--miva-blue);
+  background: var(--hero);
+  border-color: var(--hero);
   color: #fff;
 }
 .stat-card.hero .stat-lab {
@@ -815,6 +901,45 @@ td:first-child {
   gap: var(--s-4);
 }
 
+/* ── appearance palette cards (settings) ─────────────────── */
+.pal-row {
+  display: flex;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.pal {
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  padding: 6px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--txt-2);
+  text-align: left;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.pal:hover {
+  border-color: var(--line-strong);
+}
+.pal[aria-pressed="true"] {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+}
+.pal-swatch {
+  display: grid;
+  grid-template-columns: 34px 62px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.pal-name {
+  display: block;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  padding: 6px 4px 2px;
+}
+
 /* ── chips & search field (students page) ────────────────── */
 .chip {
   display: inline-flex;
@@ -836,13 +961,13 @@ td:first-child {
   color: var(--txt-1);
 }
 .chip[aria-pressed="true"] {
-  background: var(--miva-blue);
-  border-color: var(--miva-blue);
+  background: var(--nav-bg);
+  border-color: var(--nav-bg);
   color: #fff;
 }
 [data-theme="dark"] .chip[aria-pressed="true"] {
-  background: var(--miva-blue-deep);
-  border-color: var(--miva-blue-bright);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.34);
 }
 .searchbar {
   display: flex;
@@ -856,10 +981,7 @@ td:first-child {
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 .searchbar:focus-within {
-  border-color: var(--miva-blue);
-}
-[data-theme="dark"] .searchbar:focus-within {
-  border-color: var(--miva-blue-bright);
+  border-color: var(--focus);
 }
 .searchbar input {
   flex: 1;
@@ -938,7 +1060,7 @@ td:first-child {
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(9, 49, 79, 0.6);
+  background: rgba(15, 23, 42, 0.6);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   z-index: 40;

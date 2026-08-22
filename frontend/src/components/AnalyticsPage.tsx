@@ -17,7 +17,7 @@ const OUT_TONE: Record<string, string> = {
   no_face: "review",
 };
 const outcomeBarColour: Record<string, string> = {
-  enrolled: "var(--miva-blue)",
+  enrolled: "var(--bar)",
   unchanged: "var(--accent-warm)",
 };
 
@@ -297,7 +297,7 @@ export default function AnalyticsPage({
                               className="score-fill"
                               style={{
                                 width: Math.max(1, (Number(count) / maxExt) * 100) + "%",
-                                background: "var(--miva-blue)",
+                                background: "var(--bar)",
                               }}
                             ></div>
                           </div>

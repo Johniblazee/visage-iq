@@ -5,6 +5,7 @@ import { Button, Checkbox, Icon, Panel, SettingRow, Slider } from "../ds";
 import { formatNumber, relativeTime } from "../format";
 
 const SECTIONS: [string, string][] = [
+  ["appearance", "Appearance"],
   ["matching", "Matching"],
   ["model", "Model"],
   ["database", "Database & index"],
@@ -12,9 +13,49 @@ const SECTIONS: [string, string][] = [
   ["sync", "Drive sync"],
 ];
 
+// Swatch pairs are (nav, page) colors — static previews, not live tokens.
+const LIGHT_PALETTES: [string, string, [string, string]][] = [
+  ["cool", "Cool grey", ["#0F172A", "#F8FAFC"]],
+  ["warm", "Warm paper", ["#09314F", "#F8F5F2"]],
+  ["sand", "Sand", ["#85705A", "#F1EAE1"]],
+];
+const DARK_PALETTES: [string, string, [string, string]][] = [
+  ["slate", "Slate", ["#0B1120", "#1B2537"]],
+  ["ink", "Ink", ["#050914", "#0B1120"]],
+  ["navy", "Heritage navy", ["#02223A", "#0C2B44"]],
+];
+
+function PaletteCard({
+  name,
+  swatch,
+  selected,
+  onPick,
+}: {
+  name: string;
+  swatch: [string, string];
+  selected: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <button className="pal" aria-pressed={selected} onClick={onPick}>
+      <span className="pal-swatch">
+        <span style={{ background: swatch[0] }}></span>
+        <span style={{ background: swatch[1] }}></span>
+      </span>
+      <span className="pal-name">{name}</span>
+    </button>
+  );
+}
+
 export default function SettingsPage({
   cfg,
   setCfg,
+  theme,
+  setTheme,
+  lightPalette,
+  setLightPalette,
+  darkPalette,
+  setDarkPalette,
   health,
   worker,
   activeSync,
@@ -25,6 +66,12 @@ export default function SettingsPage({
 }: {
   cfg: Cfg;
   setCfg: (cfg: Cfg) => void;
+  theme: string;
+  setTheme: (theme: string) => void;
+  lightPalette: string;
+  setLightPalette: (palette: string) => void;
+  darkPalette: string;
+  setDarkPalette: (palette: string) => void;
   health: Health | null;
   worker: WorkerStatus | null;
   activeSync: SyncJob | null;
@@ -83,6 +130,59 @@ export default function SettingsPage({
           ))}
         </nav>
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-6)" }}>
+          <section className="set-section" id="set-appearance">
+            <Panel title="Appearance" meta="Applies to this browser only">
+              <SettingRow title="Mode" desc="The sidebar toggle switches between your chosen light and dark palettes.">
+                <div className="row">
+                  <button className="chip" aria-pressed={theme === "light"} onClick={() => setTheme("light")}>
+                    Light
+                  </button>
+                  <button className="chip" aria-pressed={theme === "dark"} onClick={() => setTheme("dark")}>
+                    Dark
+                  </button>
+                </div>
+              </SettingRow>
+              <SettingRow
+                title="Light palette"
+                desc="Cool grey is the neutral default. Warm paper is the original Miva cream; Sand leans on Wisdom Gold."
+              >
+                <div className="pal-row">
+                  {LIGHT_PALETTES.map(([key, name, swatch]) => (
+                    <PaletteCard
+                      key={key}
+                      name={name}
+                      swatch={swatch}
+                      selected={lightPalette === key}
+                      onPick={() => {
+                        setLightPalette(key);
+                        setTheme("light");
+                      }}
+                    />
+                  ))}
+                </div>
+              </SettingRow>
+              <SettingRow
+                title="Dark palette"
+                desc="Slate is the soft blue-grey default. Ink is near-black for low-light rooms; Heritage navy keeps the brand blue."
+              >
+                <div className="pal-row">
+                  {DARK_PALETTES.map(([key, name, swatch]) => (
+                    <PaletteCard
+                      key={key}
+                      name={name}
+                      swatch={swatch}
+                      selected={darkPalette === key}
+                      onPick={() => {
+                        setDarkPalette(key);
+                        setTheme("dark");
+                      }}
+                    />
+                  ))}
+                </div>
+              </SettingRow>
+            </Panel>
+          </section>
+
           <section className="set-section" id="set-matching">
             <Panel title="Matching" meta="Where the line falls between a match, a review and a rejection">
               <SettingRow
@@ -211,7 +311,7 @@ export default function SettingsPage({
                         width: activeSync?.progress?.total
                           ? Math.min(100, ((activeSync.progress.current || 0) / activeSync.progress.total) * 100) + "%"
                           : "4%",
-                        background: "var(--miva-blue)",
+                        background: "var(--bar)",
                       }}
                     ></div>
                   </div>

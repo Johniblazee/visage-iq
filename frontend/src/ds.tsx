@@ -137,7 +137,7 @@ export function MivaMark({ height = 30 }: { height?: number }) {
 /* ── Badge ───────────────────────────────────────────────── */
 const BADGE_TONES: Record<string, CSSProperties> = {
   neutral: { background: "var(--surface-3)", color: "var(--txt-2)" },
-  blue: { background: "rgba(9,49,79,0.08)", color: "var(--miva-blue)" },
+  blue: { background: "rgba(15,23,42,0.08)", color: "var(--ink)" },
   red: { background: "rgba(228,59,49,0.10)", color: "var(--miva-red-mid)" },
   gold: { background: "var(--miva-gold-soft)", color: "var(--miva-gold-deep)" },
 };
@@ -168,8 +168,8 @@ export function Badge({ tone = "neutral", children }: { tone?: keyof typeof BADG
 /* ── Button ──────────────────────────────────────────────── */
 const KINDS: Record<string, CSSProperties> = {
   primary: { background: "var(--miva-red)", color: "var(--miva-white)", border: "1.5px solid transparent" },
-  secondary: { background: "var(--miva-blue)", color: "var(--miva-white)", border: "1.5px solid transparent" },
-  ghost: { background: "transparent", color: "var(--miva-blue)", border: "1.5px solid var(--miva-blue)" },
+  secondary: { background: "var(--ink)", color: "var(--miva-white)", border: "1.5px solid transparent" },
+  ghost: { background: "transparent", color: "var(--ink)", border: "1.5px solid var(--ink)" },
   text: { background: "transparent", color: "var(--miva-red)", border: "1.5px solid transparent" },
 };
 /* The DS Button styles inline off Deep Heritage Blue and ships no dark variant —
@@ -297,7 +297,7 @@ export function Input({
         style={{
           width: "100%",
           background: "var(--bg-page)",
-          border: `1.5px solid ${focus ? "var(--miva-blue)" : "var(--border-2)"}`,
+          border: `1.5px solid ${focus ? "var(--focus)" : "var(--border-2)"}`,
           borderRadius: "var(--r-sm)",
           padding: "11px var(--s-3)",
           outline: "none",
@@ -348,7 +348,7 @@ export function Select({
             appearance: "none",
             WebkitAppearance: "none",
             background: "var(--bg-page)",
-            border: `1.5px solid ${focus ? "var(--miva-blue)" : "var(--border-2)"}`,
+            border: `1.5px solid ${focus ? "var(--focus)" : "var(--border-2)"}`,
             borderRadius: "var(--r-sm)",
             padding: "11px 40px 11px var(--s-3)",
             outline: "none",
@@ -410,11 +410,11 @@ export function Checkbox({
           height: 20,
           flexShrink: 0,
           borderRadius: "var(--r-xs)",
-          background: checked ? "var(--miva-blue)" : "var(--bg-page)",
-          border: `1.5px solid ${checked ? "var(--miva-blue)" : "var(--border-2)"}`,
+          background: checked ? "var(--focus)" : "var(--bg-page)",
+          border: `1.5px solid ${checked ? "var(--focus)" : "var(--border-2)"}`,
           display: "grid",
           placeItems: "center",
-          boxShadow: focus ? "0 0 0 3px color-mix(in srgb, var(--miva-blue-bright) 45%, transparent)" : undefined,
+          boxShadow: focus ? "0 0 0 3px color-mix(in srgb, var(--focus) 45%, transparent)" : undefined,
           transition: "background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out)",
         }}
       >

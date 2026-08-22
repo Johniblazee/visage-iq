@@ -43,6 +43,8 @@ export default function App() {
   });
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("visageiq-collapsed") === "1");
   const [theme, setTheme] = useState(() => localStorage.getItem("visageiq-theme") || "light");
+  const [lightPalette, setLightPalette] = useState(() => localStorage.getItem("visageiq-lp") || "cool");
+  const [darkPalette, setDarkPalette] = useState(() => localStorage.getItem("visageiq-dp") || "slate");
   const [cfg, setCfg] = useState<Cfg>(loadCfg);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState("");
@@ -54,6 +56,14 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("visageiq-theme", theme);
   }, [theme]);
+  useEffect(() => {
+    document.documentElement.setAttribute("data-lp", lightPalette);
+    localStorage.setItem("visageiq-lp", lightPalette);
+  }, [lightPalette]);
+  useEffect(() => {
+    document.documentElement.setAttribute("data-dp", darkPalette);
+    localStorage.setItem("visageiq-dp", darkPalette);
+  }, [darkPalette]);
   useEffect(() => {
     localStorage.setItem("visageiq-page", page);
   }, [page]);
@@ -241,6 +251,12 @@ export default function App() {
           <SettingsPage
             cfg={cfg}
             setCfg={setCfg}
+            theme={theme}
+            setTheme={setTheme}
+            lightPalette={lightPalette}
+            setLightPalette={setLightPalette}
+            darkPalette={darkPalette}
+            setDarkPalette={setDarkPalette}
             health={health}
             worker={worker}
             activeSync={activeSync}
