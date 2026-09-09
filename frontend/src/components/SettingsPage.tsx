@@ -458,7 +458,7 @@ export default function SettingsPage({
 
           <section className="set-section" id="set-audit">
             <Panel title="Audit" meta="Most recent 50 events — every search, view and control action" pad={false}>
-              <div className="table-scroll" style={{ padding: "var(--s-4) var(--s-2)", maxHeight: 380 }}>
+              <div className="table-scroll" style={{ maxHeight: 380 }}>
                 <table>
                   <thead>
                     <tr>

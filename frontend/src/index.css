@@ -892,6 +892,9 @@ td:first-child {
 }
 .table-scroll {
   overflow: auto;
+  /* No top padding: sticky th pins to the padding edge, so padded scrollers
+     let rows slide visibly through the strip above the header. */
+  padding: 0 var(--s-2) var(--s-4);
 }
 .table-scroll thead th {
   position: sticky;
