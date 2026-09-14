@@ -10,7 +10,7 @@ import {
   type WorkerStatus,
 } from "../api";
 import { Button, Checkbox, Icon, Panel, SettingRow, Slider, toast } from "../ds";
-import { formatNumber, relativeTime } from "../format";
+import { cosinePct, formatNumber, pctCosine, relativeTime } from "../format";
 
 const SECTIONS: [string, string][] = [
   ["appearance", "Appearance"],
@@ -105,6 +105,9 @@ export default function SettingsPage({
       .catch((e) => setAuditError(errorMessage(e)));
   }, []);
   const set = (key: keyof Cfg, value: number) => setCfg({ ...cfg, [key]: value });
+  // Knobs live on the display scale; dragging one past the other pushes it along.
+  const matchPct = Math.round(cosinePct(cfg.match));
+  const reviewPct = Math.round(cosinePct(cfg.review));
   const workerRunning = worker ? !worker.suspended : false;
   const syncing = activeSync && ["queued", "running"].includes(activeSync.status);
   // drive_total: null = unknown (no sync yet), 0 = folder listed but empty.
@@ -213,25 +216,29 @@ export default function SettingsPage({
                 desc="Similarity at or above this is reported as a confirmed match."
               >
                 <Slider
-                  value={cfg.match}
-                  min={0.2}
-                  max={0.95}
-                  step={0.01}
-                  onChange={(value) => set("match", Math.max(value, cfg.review + 0.01))}
-                  format={(value) => (value * 100).toFixed(0) + "%"}
+                  value={matchPct}
+                  min={1}
+                  max={99}
+                  step={1}
+                  onChange={(pct) =>
+                    setCfg({ ...cfg, match: pctCosine(pct), ...(pct <= reviewPct && { review: pctCosine(pct - 1) }) })
+                  }
+                  format={(pct) => pct + "%"}
                 />
               </SettingRow>
               <SettingRow
                 title="Review threshold"
-                desc="Scores between this and the match threshold are queued for a human decision. Must stay below the match threshold."
+                desc="Scores between this and the match threshold are queued for a human decision. Dragging past the match knob moves it too."
               >
                 <Slider
-                  value={cfg.review}
-                  min={0.1}
-                  max={0.9}
-                  step={0.01}
-                  onChange={(value) => set("review", Math.min(value, cfg.match - 0.01))}
-                  format={(value) => (value * 100).toFixed(0) + "%"}
+                  value={reviewPct}
+                  min={0}
+                  max={98}
+                  step={1}
+                  onChange={(pct) =>
+                    setCfg({ ...cfg, review: pctCosine(pct), ...(pct >= matchPct && { match: pctCosine(pct + 1) }) })
+                  }
+                  format={(pct) => pct + "%"}
                 />
               </SettingRow>
               <SettingRow

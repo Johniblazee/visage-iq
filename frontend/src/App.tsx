@@ -242,64 +242,6 @@ export default function App() {
           ))}
         </nav>
         <div className="side-foot">
-          <div className="side-dials hide-collapsed">
-            <label>
-              <span className="side-meta">
-                Match <b>{(cfg.match * 100).toFixed(0)}%</b>
-              </span>
-              <input
-                type="range"
-                min={0.2}
-                max={0.95}
-                step={0.01}
-                value={cfg.match}
-                onChange={(e) =>
-                  setCfg({ ...cfg, match: Math.max(parseFloat(e.target.value), cfg.review + 0.01) })
-                }
-              />
-            </label>
-            <label>
-              <span className="side-meta">
-                Review <b>{(cfg.review * 100).toFixed(0)}%</b>
-              </span>
-              <input
-                type="range"
-                min={0.1}
-                max={0.9}
-                step={0.01}
-                value={cfg.review}
-                onChange={(e) =>
-                  setCfg({ ...cfg, review: Math.min(parseFloat(e.target.value), cfg.match - 0.01) })
-                }
-              />
-            </label>
-            <label>
-              <span className="side-meta">
-                Top K <b>{cfg.topK}</b>
-              </span>
-              <input
-                type="range"
-                min={1}
-                max={6}
-                step={1}
-                value={cfg.topK}
-                onChange={(e) => setCfg({ ...cfg, topK: parseInt(e.target.value, 10) })}
-              />
-            </label>
-            {models.length > 1 && (
-              <label>
-                <span className="side-meta">Model</span>
-                <select className="side-select" value={activeModel} onChange={(e) => setModel(e.target.value)}>
-                  {models.map((m) => (
-                    <option key={m.name} value={m.name}>
-                      {m.name}
-                      {m.primary ? "" : ` · ${formatNumber(m.enrolled_count)} enrolled`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
           <div className="row" style={{ gap: "var(--s-2)", flexWrap: "nowrap" }}>
             <button className="icon-btn on-dark" onClick={() => setCollapsed(!collapsed)} aria-label="Toggle sidebar">
               <Icon name="menu" size={16} />

@@ -33,13 +33,11 @@ def _verdict(similarity: float, match_t: float, review_t: float) -> str:
 
 
 # Mirrors backend/scoring.py — keep in sync. Raw cosine never reaches 1.0, so
-# rescale for display: impostor ceiling -> 0%, review -> 50%, match -> 75%,
-# genuine ceiling -> 100%. Computed client-side so the sliders stay consistent.
-def _confidence_pct(similarity: float, match_t: float, review_t: float) -> float:
-    xs = [0.23, review_t, match_t, 0.85]
+# rescale for display onto one fixed piecewise scale: impostor ceiling 0.23 -> 0%,
+# 0.40 -> 50%, 0.50 -> 75%, genuine ceiling 0.85 -> 100%.
+def _confidence_pct(similarity: float) -> float:
+    xs = [0.23, 0.40, 0.50, 0.85]
     ys = [0.0, 50.0, 75.0, 100.0]
-    for i in range(1, 4):
-        xs[i] = max(xs[i], xs[i - 1] + 1e-6)
     if similarity <= xs[0]:
         return 0.0
     for x0, x1, y0, y1 in zip(xs, xs[1:], ys, ys[1:]):
@@ -98,7 +96,7 @@ def _fetch_candidate_bytes(file_id: str) -> bytes | None:
 
 def _render_candidate(idx: int, cand: dict, match_t: float, review_t: float) -> None:
     similarity = cand["similarity"]
-    confidence = _confidence_pct(similarity, match_t, review_t)
+    confidence = _confidence_pct(similarity)
     verdict = _verdict(similarity, match_t, review_t)
     color = VERDICT_COLORS.get(verdict, "#64748b")
     with st.container(border=True):
@@ -484,7 +482,7 @@ def main() -> None:
         candidates = (selected_face or {}).get("candidates", [])[:top_k]
         if candidates:
             top_sim = candidates[0]["similarity"]
-            top_pct = _confidence_pct(top_sim, match_t, review_t)
+            top_pct = _confidence_pct(top_sim)
             top_verdict = _verdict(top_sim, match_t, review_t)
             top_color = VERDICT_COLORS.get(top_verdict, "#64748b")
             st.markdown(

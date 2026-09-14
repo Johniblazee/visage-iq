@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type Key
 import type { Cfg } from "../App";
 import { apiRequest, apiUrl, errorMessage, type MatchResponse } from "../api";
 import { Button, Icon, Panel, ScoreBar, SEARCH_LOADER_MSGS, Verdict, verdictOf, VqLoader } from "../ds";
-import { formatNumber } from "../format";
+import { cosinePct, formatNumber } from "../format";
 
 const FETCH_TOP_K = 20;
 
@@ -25,21 +25,6 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
   const visibleCandidates = (selectedFace?.candidates || []).slice(0, cfg.topK);
   const topCandidate = visibleCandidates[0] || null;
 
-  // Mirrors backend/scoring.py — keep in sync. Raw cosine never reaches 1.0,
-  // so rescale for display: impostor ceiling -> 0%, review -> 50%,
-  // match -> 75%, genuine ceiling -> 100%.
-  function confidencePct(similarity: number) {
-    const xs = [0.23, cfg.review, cfg.match, 0.85];
-    const ys = [0, 50, 75, 100];
-    for (let i = 1; i < 4; i++) xs[i] = Math.max(xs[i], xs[i - 1] + 1e-6);
-    if (similarity <= xs[0]) return 0;
-    for (let i = 1; i < 4; i++) {
-      if (similarity <= xs[i]) {
-        return ys[i - 1] + ((similarity - xs[i - 1]) / (xs[i] - xs[i - 1])) * (ys[i] - ys[i - 1]);
-      }
-    }
-    return 100;
-  }
   // SCRFD det_score: floor 0.5 (det_thresh), empirical ceiling ~0.95.
   function detPct(detScore: number) {
     return Math.max(0, Math.min(1, (detScore - 0.5) / 0.45)) * 100;
@@ -322,7 +307,7 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
                       <div className="stat-lab">Top similarity</div>
                       <div className="row" style={{ gap: "var(--s-4)", marginTop: 6 }}>
                         <span className="score-num" style={{ fontSize: "var(--text-h2)" }}>
-                          {confidencePct(topCandidate.similarity).toFixed(1)}%
+                          {cosinePct(topCandidate.similarity).toFixed(1)}%
                         </span>
                         <Verdict kind={kind} />
                       </div>
@@ -335,7 +320,7 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
                             ? "In the review band — a human decision is required."
                             : "Above the match threshold."}
                       </div>
-                      <ScoreBar value={confidencePct(topCandidate.similarity)} kind={kind} />
+                      <ScoreBar value={cosinePct(topCandidate.similarity)} kind={kind} />
                     </div>
                   </>
                 );
@@ -385,7 +370,7 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
                           ].join(" · ")}
                         </div>
                         <div style={{ marginTop: 8, maxWidth: 340 }}>
-                          <ScoreBar value={confidencePct(candidate.similarity)} kind={kind} />
+                          <ScoreBar value={cosinePct(candidate.similarity)} kind={kind} />
                         </div>
                       </div>
                       <div
@@ -398,7 +383,7 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
                         }}
                       >
                         <span className="score-num" style={{ fontSize: "var(--text-h4)" }}>
-                          {confidencePct(candidate.similarity).toFixed(1)}%
+                          {cosinePct(candidate.similarity).toFixed(1)}%
                         </span>
                         <Verdict kind={kind} />
                       </div>

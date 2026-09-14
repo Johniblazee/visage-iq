@@ -376,31 +376,6 @@ p {
   color: rgba(255, 255, 255, 0.5);
   white-space: nowrap;
 }
-/* Threshold dials + model picker pinned to the rail foot */
-.side-dials {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-  padding-bottom: var(--s-3);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-}
-.side-dials label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.side-dials .side-meta b {
-  color: rgba(255, 255, 255, 0.85);
-}
-.side-dials input[type="range"] {
-  height: 16px;
-}
-.side-dials input[type="range"]::-webkit-slider-runnable-track {
-  background: rgba(255, 255, 255, 0.18);
-}
-.side-dials input[type="range"]::-moz-range-track {
-  background: rgba(255, 255, 255, 0.18);
-}
 .side-select {
   width: 100%;
   background: rgba(255, 255, 255, 0.08);
@@ -413,9 +388,6 @@ p {
 .side-select option {
   color: var(--txt-1, #111);
   background: var(--surface-1, #fff);
-}
-.collapsed .side-dials {
-  display: none;
 }
 .icon-btn {
   display: inline-flex;

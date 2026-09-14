@@ -220,8 +220,11 @@ API response (`/match`):
 `similarity` is the raw ArcFace cosine — the unit thresholds are defined in.
 `confidence_pct` is a normalized display score ([backend/scoring.py](backend/scoring.py)):
 raw cosine never reaches 1.0 (impostor pairs ≤ ~0.23, genuine pairs ~0.45–0.85),
-so it is rescaled piecewise-linearly — impostor ceiling 0.23 → 0%,
-`REVIEW_THRESHOLD` → 50%, `MATCH_THRESHOLD` → 75%, genuine ceiling 0.85 → 100%.
+so it is rescaled piecewise-linearly onto one fixed scale — impostor ceiling
+0.23 → 0%, cosine 0.40 → 50%, cosine 0.50 → 75%, genuine ceiling 0.85 → 100%.
+The threshold knobs live on the same scale (stock `REVIEW_THRESHOLD` 0.40 reads
+50%, `MATCH_THRESHOLD` 0.50 reads 75%), so 75–100% is a match, 50–74% a review,
+and a candidate percentage compares directly against the knobs.
 Detection scores shown in the UIs are likewise rescaled from det_score's
 practical range [0.5, 0.95].
 

@@ -211,7 +211,7 @@ def _search(
                 drive_file_id=file_id,
                 title=title,
                 similarity=sim_f,
-                confidence_pct=scoring.confidence_pct(sim_f, review_t, match_t),
+                confidence_pct=scoring.confidence_pct(sim_f),
                 verdict=_verdict(sim_f, match_t, review_t),
                 student=StudentRef(
                     full_name=s_name, matric=s_matric, student_id=s_sid, programme=s_prog
