@@ -18,30 +18,15 @@ const tintFor = (s: StudentRow) =>
   AVATAR_TINTS[(s.natural_key.charCodeAt(s.natural_key.length - 1) + s.full_name.length) % AVATAR_TINTS.length];
 
 function Avatar({ student, size = 64, radius }: { student: StudentRow; size?: number; radius?: string }) {
-  if (student.photo_drive_file_id) {
-    return (
-      <div
-        style={{
-          width: size,
-          height: size,
-          borderRadius: radius || "var(--r-md)",
-          overflow: "hidden",
-          flexShrink: 0,
-        }}
-      >
-        <img
-          src={apiUrl("/image/" + encodeURIComponent(student.photo_drive_file_id))}
-          alt={student.full_name}
-          loading="lazy"
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      </div>
-    );
-  }
+  // Initials sit underneath; the photo overlays and removes itself if the
+  // file can't be rendered (zero-byte/truncated uploads), so no alt-text box.
   return (
     <div
       className="avatar"
       style={{
+        position: "relative",
+        overflow: "hidden",
+        flexShrink: 0,
         width: size,
         height: size,
         background: tintFor(student),
@@ -50,6 +35,15 @@ function Avatar({ student, size = 64, radius }: { student: StudentRow; size?: nu
       }}
     >
       <span style={{ opacity: 0.85 }}>{initials(student.full_name)}</span>
+      {student.photo_drive_file_id && (
+        <img
+          src={apiUrl("/image/" + encodeURIComponent(student.photo_drive_file_id))}
+          alt=""
+          loading="lazy"
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+          onError={(e) => (e.currentTarget.style.display = "none")}
+        />
+      )}
     </div>
   );
 }
@@ -309,21 +303,20 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
         <div className="stud-grid">
           {page.rows.map((s) => (
             <button key={s.id} className="stud" onClick={() => setOpen(s)}>
-              <div className="stud-photo" style={s.photo_drive_file_id ? undefined : { background: tintFor(s) }}>
+              <div className="stud-photo" style={{ background: tintFor(s) }}>
+                {initials(s.full_name)}
                 {s.photo_drive_file_id ? (
                   <img
                     src={apiUrl("/image/" + encodeURIComponent(s.photo_drive_file_id))}
-                    alt={s.full_name}
+                    alt=""
                     loading="lazy"
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+                    onError={(e) => (e.currentTarget.style.display = "none")}
                   />
                 ) : (
-                  <>
-                    {initials(s.full_name)}
-                    <span style={{ position: "absolute", bottom: 8, right: 8 }}>
-                      <span className="tag">No photo</span>
-                    </span>
-                  </>
+                  <span style={{ position: "absolute", bottom: 8, right: 8 }}>
+                    <span className="tag">No photo</span>
+                  </span>
                 )}
               </div>
               <div className="stud-body">

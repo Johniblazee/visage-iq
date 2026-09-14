@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 import pillow_heif
+import pypdfium2 as pdfium
 from insightface.app import FaceAnalysis
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -162,8 +163,25 @@ def get_app(profile: str = "match", model: str | None = None) -> FaceAnalysis:
     return _apps[key]
 
 
+# Longest side, in pixels, when rasterizing a PDF page for detection/display.
+PDF_RASTER_SIDE = 1600
+
+
+def _open(image_bytes: bytes) -> Image.Image:
+    """Open any accepted upload as a PIL image.
+
+    Passport photos arrive as PDFs surprisingly often (scanner apps, phone
+    "share as document"): page 1 is rasterized. Everything else goes through
+    Pillow (pillow-heif registered above). Raises like Image.open on junk.
+    """
+    if image_bytes.startswith(b"%PDF-"):
+        page = pdfium.PdfDocument(image_bytes)[0]
+        return page.render(scale=PDF_RASTER_SIDE / max(page.get_size())).to_pil()
+    return Image.open(io.BytesIO(image_bytes))
+
+
 def _decode(image_bytes: bytes) -> np.ndarray:
-    """Decode JPG / PNG / WEBP / BMP / GIF / TIFF / HEIC / HEIF -> BGR ndarray.
+    """Decode JPG / PNG / WEBP / BMP / GIF / TIFF / HEIC / HEIF / PDF -> BGR ndarray.
 
     Honors EXIF Orientation via Pillow's exif_transpose so phone-shot photos
     arrive upright instead of sideways. Returns a BGR uint8 ndarray, the same
@@ -172,10 +190,10 @@ def _decode(image_bytes: bytes) -> np.ndarray:
     if not image_bytes:
         raise InvalidImage("Empty image buffer (zero bytes)")
     try:
-        with Image.open(io.BytesIO(image_bytes)) as pil:
+        with _open(image_bytes) as pil:
             pil = ImageOps.exif_transpose(pil).convert("RGB")
             rgb = np.array(pil)
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except (UnidentifiedImageError, OSError, ValueError, IndexError, pdfium.PdfiumError) as exc:
         raise InvalidImage(f"Could not decode image: {exc}") from exc
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
@@ -183,12 +201,12 @@ def _decode(image_bytes: bytes) -> np.ndarray:
 def to_display_jpeg(image_bytes: bytes, max_side: int = 512) -> bytes:
     """Normalize an enrolled photo to a browser-safe JPEG thumbnail.
 
-    Browsers cannot render HEIC/HEIF/TIFF, so /image must not serve Drive
-    originals verbatim. Same Pillow decode path as _decode (pillow-heif is
-    registered above): EXIF orientation applied, longest side capped, JPEG out.
+    Browsers cannot render HEIC/HEIF/TIFF/PDF, so /image must not serve Drive
+    originals verbatim. Same decode path as _decode (_open handles PDF and
+    HEIF): EXIF orientation applied, longest side capped, JPEG out.
     Raises on undecodable input (e.g. DNG) — caller falls back to the original.
     """
-    with Image.open(io.BytesIO(image_bytes)) as pil:
+    with _open(image_bytes) as pil:
         pil = ImageOps.exif_transpose(pil).convert("RGB")
         pil.thumbnail((max_side, max_side), Image.LANCZOS)
         buf = io.BytesIO()

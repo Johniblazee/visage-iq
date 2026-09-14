@@ -3,7 +3,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from time import perf_counter
+from time import perf_counter, sleep
 
 from backend.cache import (
     clear_active_sync,
@@ -297,15 +297,23 @@ def _acquired_or_recovered(name: str, prefix: str, job):
             return
 
     holder = get_active_sync()
-    if is_job_alive(holder):
+    if holder == getattr(job, "id", None):
+        # enqueue_sync() points the active marker at the newest job before it
+        # runs, so "held while the marker is us" means a dead holder's lock is
+        # still inside its TTL (one sync worker, jobs run serially). Let it
+        # lapse instead of mistaking ourselves for a live holder; keep the
+        # marker so the UI's progress widget stays on this job.
+        logger.warning("%s lock held by a dead holder; waiting %ds for it to lapse", prefix, LOCK_TTL)
+        sleep(LOCK_TTL + 1)
+    elif is_job_alive(holder):
         logger.warning("%s already in progress (holder=%s, alive); skipping", prefix, holder)
         _write_skip_meta(job, "another sync is already running")
         yield None
         return
-
-    logger.warning("%s stale lock (holder=%s, dead) — recovering", prefix, holder)
-    unlock(name)
-    clear_active_sync()
+    else:
+        logger.warning("%s stale lock (holder=%s, dead) — recovering", prefix, holder)
+        unlock(name)
+        clear_active_sync()
     with lock_with_heartbeat(name, ttl=LOCK_TTL, refresh_every=LOCK_REFRESH) as token2:
         if token2 is not None:
             logger.warning("%s recovered stale lock; proceeding", prefix)

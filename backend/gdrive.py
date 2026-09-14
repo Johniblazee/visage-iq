@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 FOLDER_MIME = "application/vnd.google-apps.folder"
+# Passport uploads arrive as PDFs (scanner apps) and occasionally with no
+# extension (octet-stream); the decoder sniffs content, so admit both.
+EXTRA_MIME = {"application/pdf", "application/octet-stream"}
 LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime)"
 
 
@@ -116,7 +119,7 @@ def list_image_files(folder_id: str | None = None, recursive: bool | None = None
                 if recursive:
                     stack.append(item["id"])
                 continue
-            if not mime.startswith("image/"):
+            if not (mime.startswith("image/") or mime in EXTRA_MIME):
                 continue
             yield DriveFile(
                 id=item["id"],

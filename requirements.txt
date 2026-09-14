@@ -10,6 +10,7 @@ opencv-python-headless>=4.10
 numpy>=1.26,<2.3
 pillow>=10.4
 pillow-heif>=0.18
+pypdfium2>=4.30,<6
 google-api-python-client>=2.150
 google-auth>=2.35
 redis>=5.2
