@@ -7,9 +7,8 @@ Verdict = Literal["MATCH", "REVIEW", "NO_MATCH"]
 
 class StudentRef(BaseModel):
     full_name: str
-    matric: str | None = None
     student_id: str | None = None
-    programme: str | None = None
+    location: str | None = None
 
 
 class Candidate(BaseModel):
@@ -157,12 +156,9 @@ class StudentRow(BaseModel):
     id: int
     natural_key: str
     student_id: str | None = None
-    matric: str | None = None
     full_name: str
     email: str | None = None
-    programme: str | None = None
-    cohort: str | None = None
-    level_semester: str | None = None
+    location: str | None = None
     photo_drive_file_id: str | None = None
 
 
@@ -174,8 +170,6 @@ class StudentPage(BaseModel):
 
 
 class StudentFacets(BaseModel):
-    programmes: list[str]
-    cohorts: list[str]
-    levels: list[str]
+    locations: list[str]
     total: int
     last_sync: dict | None = None

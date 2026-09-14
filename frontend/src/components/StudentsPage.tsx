@@ -66,11 +66,8 @@ function StudentDrawer({
   if (!student) return null;
   const kvRows: [string, string | null | undefined][] = [
     ["Student ID", student.student_id ?? student.natural_key],
-    ["Matric number", student.matric],
     ["Email", student.email],
-    ["Programme", student.programme],
-    ["Cohort", student.cohort],
-    ["Level-Semester", student.level_semester],
+    ["Location", student.location],
   ];
   return (
     <>
@@ -120,20 +117,16 @@ function StudentDrawer({
 const FIELDS: { k: string; label: string }[] = [
   { k: "all", label: "All fields" },
   { k: "name", label: "Name" },
-  { k: "matric", label: "Matric number" },
   { k: "sid", label: "Student ID" },
   { k: "email", label: "Email" },
-  { k: "programme", label: "Programme" },
-  { k: "cohort", label: "Cohort" },
+  { k: "location", label: "Location" },
 ];
 
 export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
   const [field, setField] = useState("all");
-  const [programme, setProgramme] = useState("");
-  const [cohort, setCohort] = useState("");
-  const [level, setLevel] = useState("");
+  const [location, setLocation] = useState("");
   const [photosOnly, setPhotosOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -152,7 +145,7 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
   // Any filter change restarts pagination at the first page.
   useEffect(() => {
     setOffset(0);
-  }, [query, field, programme, cohort, level, photosOnly]);
+  }, [query, field, location, photosOnly]);
 
   useEffect(() => {
     (async () => {
@@ -171,9 +164,7 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
     (async () => {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset), field });
       if (query) params.set("q", query);
-      if (programme) params.set("programme", programme);
-      if (cohort) params.set("cohort", cohort);
-      if (level) params.set("level", level);
+      if (location) params.set("location", location);
       if (photosOnly) params.set("has_photo", "true");
       try {
         const result = await apiRequest<StudentPage>(`/students?${params.toString()}`);
@@ -185,20 +176,16 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
         if (fetchSeq.current === seq) setError(errorMessage(e));
       }
     })();
-  }, [query, field, programme, cohort, level, photosOnly, offset]);
+  }, [query, field, location, photosOnly, offset]);
 
   const active: [string, string, () => void][] = (
     [
-      ["Programme", programme, () => setProgramme("")],
-      ["Cohort", cohort, () => setCohort("")],
-      ["Level", level, () => setLevel("")],
+      ["Location", location, () => setLocation("")],
       ["Photo", photosOnly ? "Has photo" : "", () => setPhotosOnly(false)],
     ] as [string, string, () => void][]
   ).filter((f) => f[1]);
   const clearAll = () => {
-    setProgramme("");
-    setCohort("");
-    setLevel("");
+    setLocation("");
     setPhotosOnly(false);
   };
 
@@ -211,8 +198,8 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
           <div className="eyebrow">Enrolment index</div>
           <h1>Student search</h1>
           <p>
-            Look a student up by name, matric number, student ID, email, programme or cohort, then open the
-            record to see their enrolled photo.
+            Look a student up by name, student ID, email or location, then open the record to see their
+            enrolled photo.
           </p>
         </div>
       </div>
@@ -225,7 +212,7 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
             onKeyDown={(e) => {
               if (e.key === "Enter") setQuery(q);
             }}
-            placeholder="e.g. a name, matric number, student ID, email or programme"
+            placeholder="e.g. a name, student ID, email or location"
           />
           {q && (
             <button
@@ -257,25 +244,11 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
           <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
             <div className="filter-grid">
               <Select
-                label="Programme"
-                options={facets?.programmes ?? []}
-                placeholder="Any programme"
-                value={programme}
-                onChange={setProgramme}
-              />
-              <Select
-                label="Cohort"
-                options={facets?.cohorts ?? []}
-                placeholder="Any cohort"
-                value={cohort}
-                onChange={setCohort}
-              />
-              <Select
-                label="Level-Semester"
-                options={facets?.levels ?? []}
-                placeholder="Any level"
-                value={level}
-                onChange={setLevel}
+                label="Location"
+                options={facets?.locations ?? []}
+                placeholder="Any location"
+                value={location}
+                onChange={setLocation}
               />
               <div style={{ alignSelf: "end", paddingBottom: 6 }}>
                 <Checkbox label="Has enrolled photo" checked={photosOnly} onChange={setPhotosOnly} />
@@ -356,16 +329,14 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
               <div className="stud-body">
                 <div className="stud-name">{s.full_name}</div>
                 <div className="stud-line">{s.student_id ?? s.natural_key}</div>
-                {s.matric && <div className="stud-line">{s.matric}</div>}
                 {s.email && (
                   <div className="stud-line" style={ellipsis} title={s.email}>
                     {s.email}
                   </div>
                 )}
-                {s.programme && <div className="stud-line">{s.programme}</div>}
-                {(s.cohort || s.level_semester) && (
+                {s.location && (
                   <div className="stud-line" style={{ color: "var(--txt-2)", marginTop: 4 }}>
-                    {[s.cohort, s.level_semester].filter(Boolean).join(" · ")}
+                    {s.location}
                   </div>
                 )}
               </div>

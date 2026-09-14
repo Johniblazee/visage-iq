@@ -65,7 +65,7 @@ class Settings(BaseSettings):
 
     # --- student directory (Google Sheet) ---
     students_sheet_id: str = ""          # empty = feature disabled
-    students_worksheet: str = "Pack Prosessing"
+    students_worksheet: str = "passports"
 
     # --- auth (Clerk) + audit ---
     clerk_secret_key: str = ""           # empty = auth disabled (dev mode)

@@ -1,4 +1,4 @@
-"""Sync the students table from the 'Pack Prosessing' worksheet.
+"""Sync the students table from the 'passports' worksheet.
 Runs in the worker: after every Drive photo sync, and standalone via
 POST /students/sync. Sheet is the source of truth: upsert by natural key,
 delete keys that vanished. Empty reads abort (same guard as photo prune)."""
@@ -15,22 +15,16 @@ from backend.students_map import HeaderError, map_rows, resolve_headers
 logger = logging.getLogger(__name__)
 
 UPSERT_SQL = """
-INSERT INTO students (natural_key, student_id, matric, full_name, email,
-                      programme, cohort, level_semester, photo_drive_file_id,
-                      row_ts, synced_at)
-VALUES (%(natural_key)s, %(student_id)s, %(matric)s, %(full_name)s, %(email)s,
-        %(programme)s, %(cohort)s, %(level_semester)s, %(photo_drive_file_id)s,
-        %(row_ts)s, NOW())
+INSERT INTO students (natural_key, student_id, full_name, email, location,
+                      photo_drive_file_id, synced_at)
+VALUES (%(natural_key)s, %(student_id)s, %(full_name)s, %(email)s, %(location)s,
+        %(photo_drive_file_id)s, NOW())
 ON CONFLICT (natural_key) DO UPDATE SET
     student_id = EXCLUDED.student_id,
-    matric = EXCLUDED.matric,
     full_name = EXCLUDED.full_name,
     email = EXCLUDED.email,
-    programme = EXCLUDED.programme,
-    cohort = EXCLUDED.cohort,
-    level_semester = EXCLUDED.level_semester,
+    location = EXCLUDED.location,
     photo_drive_file_id = EXCLUDED.photo_drive_file_id,
-    row_ts = EXCLUDED.row_ts,
     synced_at = NOW()
 """
 DELETE_MISSING_SQL = "DELETE FROM students WHERE NOT (natural_key = ANY(%s))"

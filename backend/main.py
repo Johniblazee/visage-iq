@@ -162,15 +162,15 @@ def _enrolled_count(model: str | None = None) -> int:
 
 
 _STUDENT_JOIN = (
-    "LEFT JOIN LATERAL (SELECT full_name, matric, student_id, programme "
+    "LEFT JOIN LATERAL (SELECT full_name, student_id, location "
     "                   FROM students st WHERE st.photo_drive_file_id = p.drive_file_id "
-    "                   ORDER BY st.row_ts DESC NULLS LAST LIMIT 1) s ON TRUE "
+    "                   ORDER BY st.id LIMIT 1) s ON TRUE "
 )
 
 _PRIMARY_SEARCH_SQL = (
     "SELECT p.drive_file_id, p.drive_file_name, "
     "       1 - (p.face_embedding <=> %s) AS similarity, "
-    "       s.full_name, s.matric, s.student_id, s.programme "
+    "       s.full_name, s.student_id, s.location "
     "FROM persons p "
     + _STUDENT_JOIN +
     "ORDER BY p.face_embedding <=> %s "
@@ -183,7 +183,7 @@ _PRIMARY_SEARCH_SQL = (
 _ALT_SEARCH_SQL = pgsql.SQL(
     "SELECT p.drive_file_id, p.drive_file_name, "
     "       1 - (a.embedding <=> %s) AS similarity, "
-    "       s.full_name, s.matric, s.student_id, s.programme "
+    "       s.full_name, s.student_id, s.location "
     "FROM alt_embeddings a "
     "JOIN persons p ON p.drive_file_id = a.drive_file_id "
     + _STUDENT_JOIN +
@@ -204,7 +204,7 @@ def _search(
             cur.execute(_ALT_SEARCH_SQL.format(pgsql.Literal(model)), (emb, emb, top_k))
         rows = cur.fetchall()
     out: list[Candidate] = []
-    for file_id, title, sim, s_name, s_matric, s_sid, s_prog in rows:
+    for file_id, title, sim, s_name, s_sid, s_loc in rows:
         sim_f = float(sim)
         out.append(
             Candidate(
@@ -213,9 +213,7 @@ def _search(
                 similarity=sim_f,
                 confidence_pct=scoring.confidence_pct(sim_f),
                 verdict=_verdict(sim_f, match_t, review_t),
-                student=StudentRef(
-                    full_name=s_name, matric=s_matric, student_id=s_sid, programme=s_prog
-                ) if s_name else None,
+                student=StudentRef(full_name=s_name, student_id=s_sid, location=s_loc) if s_name else None,
             )
         )
     return out
@@ -544,18 +542,16 @@ def students_page(
     request: Request,
     q: str | None = Query(default=None, max_length=200),
     # Literal keeps caller text out of audit_log.details (ids/enums only, never free text).
-    field: Literal["all", "name", "matric", "sid", "email", "programme", "cohort"] = Query(default="all"),
-    programme: str | None = Query(default=None),
-    cohort: str | None = Query(default=None),
-    level: str | None = Query(default=None),
+    field: Literal["all", "name", "sid", "email", "location"] = Query(default="all"),
+    location: str | None = Query(default=None),
     has_photo: bool = Query(default=False),
     limit: int = Query(default=48, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> StudentPage:
     audit.record(actor_of(request), "student_search",
-                 details={"field": field, "filtered": bool(programme or cohort or level or has_photo or q)})
-    return StudentPage(**students.page(q=q, field=field, programme=programme, cohort=cohort,
-                                       level=level, has_photo=has_photo, limit=limit, offset=offset))
+                 details={"field": field, "filtered": bool(location or has_photo or q)})
+    return StudentPage(**students.page(q=q, field=field, location=location, has_photo=has_photo,
+                                       limit=limit, offset=offset))
 
 
 @app.get("/students/facets", response_model=StudentFacets)

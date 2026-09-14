@@ -82,9 +82,8 @@ export interface SyncJob {
 
 export interface CandidateStudent {
   full_name: string;
-  matric?: string | null;
   student_id?: string | null;
-  programme?: string | null;
+  location?: string | null;
 }
 
 export interface Candidate {
@@ -137,12 +136,9 @@ export interface StudentRow {
   id: number;
   natural_key: string;
   student_id?: string | null;
-  matric?: string | null;
   full_name: string;
   email?: string | null;
-  programme?: string | null;
-  cohort?: string | null;
-  level_semester?: string | null;
+  location?: string | null;
   photo_drive_file_id?: string | null;
 }
 
@@ -165,9 +161,7 @@ export interface StudentSyncSummary {
 }
 
 export interface StudentFacets {
-  programmes: string[];
-  cohorts: string[];
-  levels: string[];
+  locations: string[];
   total: number;
   last_sync?: StudentSyncSummary | null;
 }
