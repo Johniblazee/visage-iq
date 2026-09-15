@@ -364,7 +364,7 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
                         <div className="cand-meta">
                           {[
                             ...(candidate.student
-                              ? [candidate.student.student_id, candidate.student.location].filter(Boolean)
+                              ? [candidate.student.student_id, candidate.student.programme, candidate.student.location].filter(Boolean)
                               : ["no student record linked"]),
                             `cosine ${candidate.similarity.toFixed(3)}`,
                           ].join(" · ")}

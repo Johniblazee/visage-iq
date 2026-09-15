@@ -61,6 +61,9 @@ function StudentDrawer({
   const kvRows: [string, string | null | undefined][] = [
     ["Student ID", student.student_id ?? student.natural_key],
     ["Email", student.email],
+    ["Programme", student.programme],
+    ["Cohort", student.cohort],
+    ["Level-Semester", student.level_semester],
     ["Location", student.location],
   ];
   return (
@@ -114,6 +117,8 @@ const FIELDS: { k: string; label: string }[] = [
   { k: "sid", label: "Student ID" },
   { k: "email", label: "Email" },
   { k: "location", label: "Location" },
+  { k: "programme", label: "Programme" },
+  { k: "cohort", label: "Cohort" },
 ];
 
 export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
@@ -121,6 +126,9 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
   const [query, setQuery] = useState("");
   const [field, setField] = useState("all");
   const [location, setLocation] = useState("");
+  const [programme, setProgramme] = useState("");
+  const [cohort, setCohort] = useState("");
+  const [level, setLevel] = useState("");
   const [photosOnly, setPhotosOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -139,7 +147,7 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
   // Any filter change restarts pagination at the first page.
   useEffect(() => {
     setOffset(0);
-  }, [query, field, location, photosOnly]);
+  }, [query, field, location, programme, cohort, level, photosOnly]);
 
   useEffect(() => {
     (async () => {
@@ -159,6 +167,9 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset), field });
       if (query) params.set("q", query);
       if (location) params.set("location", location);
+      if (programme) params.set("programme", programme);
+      if (cohort) params.set("cohort", cohort);
+      if (level) params.set("level", level);
       if (photosOnly) params.set("has_photo", "true");
       try {
         const result = await apiRequest<StudentPage>(`/students?${params.toString()}`);
@@ -170,16 +181,22 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
         if (fetchSeq.current === seq) setError(errorMessage(e));
       }
     })();
-  }, [query, field, location, photosOnly, offset]);
+  }, [query, field, location, programme, cohort, level, photosOnly, offset]);
 
   const active: [string, string, () => void][] = (
     [
+      ["Programme", programme, () => setProgramme("")],
+      ["Cohort", cohort, () => setCohort("")],
+      ["Level", level, () => setLevel("")],
       ["Location", location, () => setLocation("")],
       ["Photo", photosOnly ? "Has photo" : "", () => setPhotosOnly(false)],
     ] as [string, string, () => void][]
   ).filter((f) => f[1]);
   const clearAll = () => {
     setLocation("");
+    setProgramme("");
+    setCohort("");
+    setLevel("");
     setPhotosOnly(false);
   };
 
@@ -192,8 +209,8 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
           <div className="eyebrow">Enrolment index</div>
           <h1>Student search</h1>
           <p>
-            Look a student up by name, student ID, email or location, then open the record to see their
-            enrolled photo.
+            Look a student up by name, student ID, email, programme, cohort or location, then open the
+            record to see their enrolled photo.
           </p>
         </div>
       </div>
@@ -206,7 +223,7 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
             onKeyDown={(e) => {
               if (e.key === "Enter") setQuery(q);
             }}
-            placeholder="e.g. a name, student ID, email or location"
+            placeholder="e.g. a name, student ID, email, programme or cohort"
           />
           {q && (
             <button
@@ -237,6 +254,27 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
         {showFilters && (
           <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
             <div className="filter-grid">
+              <Select
+                label="Programme"
+                options={facets?.programmes ?? []}
+                placeholder="Any programme"
+                value={programme}
+                onChange={setProgramme}
+              />
+              <Select
+                label="Cohort"
+                options={facets?.cohorts ?? []}
+                placeholder="Any cohort"
+                value={cohort}
+                onChange={setCohort}
+              />
+              <Select
+                label="Level-Semester"
+                options={facets?.levels ?? []}
+                placeholder="Any level"
+                value={level}
+                onChange={setLevel}
+              />
               <Select
                 label="Location"
                 options={facets?.locations ?? []}
@@ -327,9 +365,10 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
                     {s.email}
                   </div>
                 )}
-                {s.location && (
+                {s.programme && <div className="stud-line">{s.programme}</div>}
+                {(s.cohort || s.level_semester || s.location) && (
                   <div className="stud-line" style={{ color: "var(--txt-2)", marginTop: 4 }}>
-                    {s.location}
+                    {[s.cohort, s.level_semester, s.location].filter(Boolean).join(" · ")}
                   </div>
                 )}
               </div>

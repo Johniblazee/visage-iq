@@ -265,7 +265,7 @@ All configuration lives in `.env` (local) or service environment variables (Rend
 | `DOWNLOAD_WORKERS` | `4` | `ThreadPoolExecutor` size for Drive-download prefetch. Overlaps I/O with embedding — the main GPU throughput win. Set `1` to disable. |
 | `DOWNLOAD_MAX_INFLIGHT` | `8` | Cap on simultaneously prefetched downloads (≈ `N × image_size` bytes buffered). |
 | `API_BASE_URL` | `http://api:8000` | URL the UI uses to call the api |
-| `STUDENTS_SHEET_ID` | *(empty = disabled)* | Spreadsheet id of the "Students Passport" workbook (share it with the service account; enable the Sheets API). When set, the worker syncs the identity columns (Student ID, Student Email, Student Name, Upload Passport Photograph, Location) into the `students` table after every photo sync. |
+| `STUDENTS_SHEET_ID` | *(empty = disabled)* | Spreadsheet id of the "Students Passport" workbook (share it with the service account; enable the Sheets API). When set, the worker syncs the identity columns (Student ID, Student Email, Student Name, Upload Passport Photograph, Location, Programme, Cohort, Current Level-Semester) into the `students` table after every photo sync. |
 | `STUDENTS_WORKSHEET` | `passports` | Worksheet (tab) name to read |
 | `CLERK_SECRET_KEY` | *(empty = auth off)* | Clerk secret key. When set, every endpoint except `/health` requires a signed-in `@miva.university` Google account (bearer token or `__session` cookie). |
 | `VITE_CLERK_PUBLISHABLE_KEY` | *(empty = auth off)* | Clerk publishable key, baked into the UI build; shows the Google sign-in gate |

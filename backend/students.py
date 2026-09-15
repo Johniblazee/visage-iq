@@ -9,24 +9,34 @@ FIELD_COLS = {
     "sid": "student_id",
     "email": "email",
     "location": "location",
+    "programme": "programme",
+    "cohort": "cohort",
 }
-ROW_COLS = "id, natural_key, student_id, full_name, email, location, photo_drive_file_id"
+ROW_COLS = ("id, natural_key, student_id, full_name, email, location, "
+            "programme, cohort, level_semester, photo_drive_file_id")
+# facet key -> column; each is a distinct-values filter on the Students page
+FACET_COLS = {"locations": "location", "programmes": "programme",
+              "cohorts": "cohort", "levels": "level_semester"}
 
 
 def _row(r) -> dict[str, Any]:
     return {
         "id": r[0], "natural_key": r[1], "student_id": r[2], "full_name": r[3],
-        "email": r[4], "location": r[5], "photo_drive_file_id": r[6],
+        "email": r[4], "location": r[5], "programme": r[6], "cohort": r[7],
+        "level_semester": r[8], "photo_drive_file_id": r[9],
     }
 
 
-def page(q: str | None, field: str, location: str | None, has_photo: bool,
+def page(q: str | None, field: str, location: str | None, programme: str | None,
+         cohort: str | None, level: str | None, has_photo: bool,
          limit: int, offset: int) -> dict[str, Any]:
     where: list[str] = []
     params: list[Any] = []
-    if location:
-        where.append("location = %s")
-        params.append(location)
+    for col, value in (("location", location), ("programme", programme),
+                       ("cohort", cohort), ("level_semester", level)):
+        if value:
+            where.append(f"{col} = %s")
+            params.append(value)
     if has_photo:
         where.append("photo_drive_file_id IS NOT NULL")
     if q:
@@ -59,9 +69,11 @@ def get(student_pk: int) -> dict[str, Any] | None:
 
 
 def facets() -> dict[str, Any]:
+    out: dict[str, Any] = {}
     with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT location FROM students WHERE location IS NOT NULL ORDER BY 1")
-        locations = [r[0] for r in cur.fetchall()]
+        for key, col in FACET_COLS.items():
+            cur.execute(f"SELECT DISTINCT {col} FROM students WHERE {col} IS NOT NULL ORDER BY 1")
+            out[key] = [r[0] for r in cur.fetchall()]
         cur.execute("SELECT COUNT(*) FROM students")
-        total = int((cur.fetchone() or [0])[0])
-    return {"locations": locations, "total": total}
+        out["total"] = int((cur.fetchone() or [0])[0])
+    return out

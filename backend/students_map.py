@@ -9,6 +9,9 @@ CANONICAL_HEADERS = {
     "name": "Student Name",
     "photo": "Upload Passport Photograph",
     "location": "Location",
+    "programme": "Programme",
+    "cohort": "Cohort",
+    "level": "Current Level-Semester",
 }
 
 _DRIVE_ID = re.compile(r"(?:/d/|[?&]id=)([A-Za-z0-9_-]{10,})")
@@ -69,6 +72,9 @@ def map_rows(rows: list[dict[str, str]]) -> tuple[list[dict], int]:
             "full_name": full_name,
             "email": email or None,
             "location": _clean(raw.get("location")) or None,
+            "programme": _clean(raw.get("programme")) or None,
+            "cohort": _clean(raw.get("cohort")) or None,
+            "level_semester": _clean(raw.get("level")) or None,
             "photo_drive_file_id": parse_drive_id(raw.get("photo")),
         }
     return list(by_key.values()), skipped

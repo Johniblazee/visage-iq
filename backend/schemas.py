@@ -9,6 +9,7 @@ class StudentRef(BaseModel):
     full_name: str
     student_id: str | None = None
     location: str | None = None
+    programme: str | None = None
 
 
 class Candidate(BaseModel):
@@ -159,6 +160,9 @@ class StudentRow(BaseModel):
     full_name: str
     email: str | None = None
     location: str | None = None
+    programme: str | None = None
+    cohort: str | None = None
+    level_semester: str | None = None
     photo_drive_file_id: str | None = None
 
 
@@ -171,5 +175,8 @@ class StudentPage(BaseModel):
 
 class StudentFacets(BaseModel):
     locations: list[str]
+    programmes: list[str]
+    cohorts: list[str]
+    levels: list[str]
     total: int
     last_sync: dict | None = None

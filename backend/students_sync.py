@@ -16,14 +16,17 @@ logger = logging.getLogger(__name__)
 
 UPSERT_SQL = """
 INSERT INTO students (natural_key, student_id, full_name, email, location,
-                      photo_drive_file_id, synced_at)
+                      programme, cohort, level_semester, photo_drive_file_id, synced_at)
 VALUES (%(natural_key)s, %(student_id)s, %(full_name)s, %(email)s, %(location)s,
-        %(photo_drive_file_id)s, NOW())
+        %(programme)s, %(cohort)s, %(level_semester)s, %(photo_drive_file_id)s, NOW())
 ON CONFLICT (natural_key) DO UPDATE SET
     student_id = EXCLUDED.student_id,
     full_name = EXCLUDED.full_name,
     email = EXCLUDED.email,
     location = EXCLUDED.location,
+    programme = EXCLUDED.programme,
+    cohort = EXCLUDED.cohort,
+    level_semester = EXCLUDED.level_semester,
     photo_drive_file_id = EXCLUDED.photo_drive_file_id,
     synced_at = NOW()
 """

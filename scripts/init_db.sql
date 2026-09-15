@@ -64,7 +64,8 @@ WHERE p.drive_file_id = fs.drive_file_id AND fs.outcome = 'unchanged';
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- Student directory, synced from the "Students Passport" workbook ('passports' tab).
--- Identity columns only: id, email, name, study-centre location, passport photo.
+-- Identity + enrolment columns only: id, email, name, location, programme,
+-- cohort, level-semester, passport photo.
 CREATE TABLE IF NOT EXISTS students (
     id                  BIGSERIAL PRIMARY KEY,
     natural_key         TEXT UNIQUE NOT NULL,   -- first non-blank of student_id | email
@@ -72,16 +73,20 @@ CREATE TABLE IF NOT EXISTS students (
     full_name           TEXT NOT NULL,
     email               TEXT,
     location            TEXT,
+    programme           TEXT,
+    cohort              TEXT,
+    level_semester      TEXT,
     photo_drive_file_id TEXT,
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
--- Sheet changed 2026-09: matric/programme/cohort/level/timestamp columns no longer exist.
-ALTER TABLE students ADD COLUMN IF NOT EXISTS location TEXT;
+-- Sheet changed 2026-09: matric/timestamp columns are gone; location,
+-- programme, cohort and level-semester were added.
 ALTER TABLE students
+    ADD COLUMN IF NOT EXISTS location TEXT,
+    ADD COLUMN IF NOT EXISTS programme TEXT,
+    ADD COLUMN IF NOT EXISTS cohort TEXT,
+    ADD COLUMN IF NOT EXISTS level_semester TEXT,
     DROP COLUMN IF EXISTS matric,
-    DROP COLUMN IF EXISTS programme,
-    DROP COLUMN IF EXISTS cohort,
-    DROP COLUMN IF EXISTS level_semester,
     DROP COLUMN IF EXISTS row_ts;
 CREATE INDEX IF NOT EXISTS students_photo_idx ON students (photo_drive_file_id);
 CREATE INDEX IF NOT EXISTS students_name_trgm ON students USING gin (full_name gin_trgm_ops);

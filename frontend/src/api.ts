@@ -84,6 +84,7 @@ export interface CandidateStudent {
   full_name: string;
   student_id?: string | null;
   location?: string | null;
+  programme?: string | null;
 }
 
 export interface Candidate {
@@ -139,6 +140,9 @@ export interface StudentRow {
   full_name: string;
   email?: string | null;
   location?: string | null;
+  programme?: string | null;
+  cohort?: string | null;
+  level_semester?: string | null;
   photo_drive_file_id?: string | null;
 }
 
@@ -162,6 +166,9 @@ export interface StudentSyncSummary {
 
 export interface StudentFacets {
   locations: string[];
+  programmes: string[];
+  cohorts: string[];
+  levels: string[];
   total: number;
   last_sync?: StudentSyncSummary | null;
 }

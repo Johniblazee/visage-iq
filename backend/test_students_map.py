@@ -7,11 +7,13 @@ from backend.students_map import (
     resolve_headers,
 )
 
-HEADERS = ["Student ID ", "Student Email", "Student Name ", "Upload Passport Photograph", "Location"]
+HEADERS = ["Student ID ", "Student Email", "Student Name ", "Upload Passport Photograph", "Location",
+           "Programme", "Cohort", "Current Level-Semester"]
 
 
 def test_resolve_headers_strips_and_maps():
-    assert resolve_headers(HEADERS) == {"student_id": 0, "email": 1, "name": 2, "photo": 3, "location": 4}
+    assert resolve_headers(HEADERS) == {"student_id": 0, "email": 1, "name": 2, "photo": 3, "location": 4,
+                                        "programme": 5, "cohort": 6, "level": 7}
 
 
 def test_resolve_headers_missing_required_raises_named():
@@ -33,7 +35,8 @@ def test_parse_drive_id_variants():
 def _row(**kw):
     base = {"student_id": "30059430", "email": "ada@miva.university", "name": "Ada  Obi",
             "photo": "https://drive.google.com/open?id=1AbC-def_9xyzLMNOPQRSTUVWXyz01234",
-            "location": "Abuja "}
+            "location": "Abuja ", "programme": "BSc Public Health", "cohort": "May 2026 Cohort",
+            "level": "100 Level-Semester 1"}
     base.update(kw)
     return base
 
@@ -46,6 +49,9 @@ def test_map_rows_normalizes():
         "full_name": "Ada Obi",  # whitespace collapsed
         "email": "ada@miva.university",
         "location": "Abuja",
+        "programme": "BSc Public Health",
+        "cohort": "May 2026 Cohort",
+        "level_semester": "100 Level-Semester 1",
         "photo_drive_file_id": "1AbC-def_9xyzLMNOPQRSTUVWXyz01234",
     }]
     assert skipped == 0
