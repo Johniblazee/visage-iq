@@ -277,12 +277,6 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
                     ) : null}
                     <dt>Searched</dt>
                     <dd>{formatNumber(matchData.enrolled_count)} enrolled photos</dd>
-                    {matchData.model && (
-                      <>
-                        <dt>Model</dt>
-                        <dd>{matchData.model}</dd>
-                      </>
-                    )}
                   </dl>
                 )}
                 {dropzone("Drop a replacement image")}
