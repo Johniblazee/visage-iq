@@ -642,6 +642,55 @@ p {
   border-color: var(--line-strong);
   transform: translateY(-1px);
 }
+.cand[role="button"] {
+  cursor: pointer;
+}
+.cand:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+/* Candidate detail modal (Search page): centred card over the scrim */
+.modal {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(880px, calc(100% - 32px));
+  height: fit-content;
+  max-height: calc(100% - 32px);
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: fade var(--dur-mid) var(--ease-out);
+}
+.modal-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 40%) minmax(0, 1fr);
+  gap: var(--s-6);
+  padding: var(--s-6);
+  overflow: auto;
+}
+.modal-photo {
+  aspect-ratio: 4 / 5;
+  background: var(--surface-2);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.modal-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+@media (max-width: 720px) {
+  .modal-body {
+    grid-template-columns: 1fr;
+  }
+}
 .cand-name {
   font-family: var(--font-display);
   font-size: var(--text-body);

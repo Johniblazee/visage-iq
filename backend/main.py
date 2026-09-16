@@ -586,10 +586,12 @@ def trigger_students_sync(request: Request) -> SyncEnqueueResponse:
 
 
 @app.get("/image/{file_id}")
-def get_image_bytes(request: Request, file_id: str) -> Response:
+def get_image_bytes(request: Request, file_id: str, full: bool = Query(default=False)) -> Response:
     audit.record(actor_of(request), "image_view", target=file_id)
     modified_time = _lookup_modified_time(file_id)
-    cached = get_image(file_id, modified_time)
+    # ponytail: the size variant lives in the cache id; both stay JPEG-only under v2.
+    cache_id = f"{file_id}:full" if full else file_id
+    cached = get_image(cache_id, modified_time)
     if cached:
         return Response(content=cached, media_type="image/jpeg")
     try:
@@ -604,7 +606,7 @@ def get_image_bytes(request: Request, file_id: str) -> Response:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     try:
         # Browsers can't render HEIC/HEIF/TIFF originals; serve a normalized JPEG.
-        jpeg = to_display_jpeg(data)
+        jpeg = to_display_jpeg(data, max_side=1600 if full else 512)
     except Exception:
         # Undecodable original (e.g. DNG). Serve it with its REAL mime — the
         # v2 cache namespace is JPEG-only, so originals are never cached.
@@ -616,7 +618,7 @@ def get_image_bytes(request: Request, file_id: str) -> Response:
                 mime = "application/octet-stream"
         return Response(content=data, media_type=mime)
     try:
-        set_image(file_id, modified_time, jpeg)
+        set_image(cache_id, modified_time, jpeg)
     except Exception:
         # Cache write is best-effort; a Redis blip must not fail the response.
         logger.warning("image cache write failed for %s", file_id, exc_info=True)

@@ -1,12 +1,115 @@
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
 import type { Cfg } from "../App";
-import { apiRequest, apiUrl, errorMessage, type MatchResponse } from "../api";
+import {
+  apiRequest,
+  apiUrl,
+  errorMessage,
+  type Candidate,
+  type MatchResponse,
+  type StudentPage,
+  type StudentRow,
+} from "../api";
 import { Button, Icon, Panel, ScoreBar, SEARCH_LOADER_MSGS, Verdict, verdictOf, VqLoader } from "../ds";
 import { cosinePct, formatNumber } from "../format";
 
 const FETCH_TOP_K = 20;
 
+function CandidateModal({
+  candidate,
+  rank,
+  cfg,
+  onClose,
+}: {
+  candidate: Candidate;
+  rank: number;
+  cfg: Cfg;
+  onClose: () => void;
+}) {
+  const [student, setStudent] = useState<StudentRow | null>(null);
+  const sid = candidate.student?.student_id ?? null;
+  // The match payload carries only a few student fields; pull the full record.
+  useEffect(() => {
+    setStudent(null);
+    if (!sid) return;
+    let cancelled = false;
+    apiRequest<StudentPage>(`/students?field=sid&q=${encodeURIComponent(sid)}&limit=5`)
+      .then((page) => {
+        if (!cancelled) setStudent(page.rows.find((r) => r.student_id === sid) ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sid]);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const kind = verdictOf(candidate.similarity, cfg.match, cfg.review);
+  const pct = cosinePct(candidate.similarity);
+  const name = candidate.student?.full_name ?? candidate.title;
+  const rows: [string, string | null | undefined][] = [
+    ["Student ID", sid],
+    ["Email", student?.email],
+    ["Programme", student?.programme ?? candidate.student?.programme],
+    ["Cohort", student?.cohort],
+    ["Level-Semester", student?.level_semester],
+    ["Location", student?.location ?? candidate.student?.location],
+    ["Photo file", candidate.title],
+  ];
+  return (
+    <>
+      <div className="scrim" onClick={onClose}></div>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={name}>
+        <header className="card-head">
+          <div>
+            <div className="eyebrow">Candidate #{rank}</div>
+            <h3 style={{ marginTop: 2 }}>{name}</h3>
+          </div>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <Icon name="x" size={16} />
+          </button>
+        </header>
+        <div className="modal-body">
+          <div className="modal-photo">
+            <img src={apiUrl(`/image/${encodeURIComponent(candidate.drive_file_id)}?full=1`)} alt="" />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", minWidth: 0 }}>
+            <div className="row" style={{ justifyContent: "space-between", flexWrap: "nowrap" }}>
+              <span className="score-num" style={{ fontSize: "var(--text-h3)" }}>
+                {pct.toFixed(1)}%
+              </span>
+              <Verdict kind={kind} />
+            </div>
+            <ScoreBar value={pct} kind={kind} />
+            <div className="muted">cosine {candidate.similarity.toFixed(3)}</div>
+            {candidate.student ? (
+              <dl className="kv">
+                {rows
+                  .filter(([, v]) => v)
+                  .map(([k, v]) => (
+                    <Fragment key={k}>
+                      <dt>{k}</dt>
+                      <dd style={{ overflowWrap: "anywhere" }}>{v}</dd>
+                    </Fragment>
+                  ))}
+              </dl>
+            ) : (
+              <div className="muted">No student record is linked to this photo.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) {
+  const [openCand, setOpenCand] = useState<{ candidate: Candidate; rank: number } | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadUrl, setUploadUrl] = useState("");
   const [matchData, setMatchData] = useState<MatchResponse | null>(null);
@@ -339,8 +442,21 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
               <div className="card-pad" style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
                 {visibleCandidates.map((candidate, index) => {
                   const kind = verdictOf(candidate.similarity, cfg.match, cfg.review);
+                  const open = () => setOpenCand({ candidate, rank: index + 1 });
                   return (
-                    <div key={candidate.drive_file_id} className="cand">
+                    <div
+                      key={candidate.drive_file_id}
+                      className="cand"
+                      role="button"
+                      tabIndex={0}
+                      onClick={open}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          open();
+                        }
+                      }}
+                    >
                       <div className="avatar" style={{ width: 64, height: 64 }}>
                         <img
                           src={apiUrl(`/image/${encodeURIComponent(candidate.drive_file_id)}`)}
@@ -389,6 +505,14 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
           </Panel>
         </div>
       </div>
+      {openCand && (
+        <CandidateModal
+          candidate={openCand.candidate}
+          rank={openCand.rank}
+          cfg={cfg}
+          onClose={() => setOpenCand(null)}
+        />
+      )}
     </div>
   );
 }
