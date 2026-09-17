@@ -108,7 +108,17 @@ function CandidateModal({
   );
 }
 
-export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) {
+export default function SearchPage({
+  cfg,
+  model,
+  probeFileId,
+  onProbeConsumed,
+}: {
+  cfg: Cfg;
+  model: string;
+  probeFileId: string | null;
+  onProbeConsumed: () => void;
+}) {
   const [openCand, setOpenCand] = useState<{ candidate: Candidate; rank: number } | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadUrl, setUploadUrl] = useState("");
@@ -139,6 +149,33 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
     setUploadFile(file);
     setUploadUrl(URL.createObjectURL(file));
   }
+
+  // "Use as probe" on a student record: fetch the linked enrolled photo
+  // (?full=1 — the same bytes that were embedded, so rank #1 should be the
+  // student themself at ~100%) and run it through the normal upload path;
+  // the auto-search effect below takes it from there.
+  useEffect(() => {
+    if (!probeFileId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(apiUrl(`/image/${encodeURIComponent(probeFileId)}?full=1`));
+        if (!resp.ok) throw new Error(`image fetch failed (${resp.status})`);
+        const blob = await resp.blob();
+        if (cancelled) return;
+        acceptFile(
+          new File([blob], `student-${probeFileId}.jpg`, { type: blob.type || "image/jpeg" }),
+        );
+      } catch (error) {
+        if (!cancelled) setMatchError(`Couldn't load the student's photo: ${errorMessage(error)}`);
+      } finally {
+        if (!cancelled) onProbeConsumed();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [probeFileId]);
 
   function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     acceptFile((event.target.files || [])[0]);

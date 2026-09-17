@@ -89,7 +89,13 @@ function StudentDrawer({
                 </Badge>
               </div>
               <div>
-                <Button kind="secondary" size="sm" iconLeft={<Icon name="search" size={16} />} onClick={onProbe}>
+                <Button
+                  kind="secondary"
+                  size="sm"
+                  disabled={!student.photo_drive_file_id}
+                  iconLeft={<Icon name="search" size={16} />}
+                  onClick={onProbe}
+                >
                   Use as probe
                 </Button>
               </div>
@@ -121,7 +127,13 @@ const FIELDS: { k: string; label: string }[] = [
   { k: "cohort", label: "Cohort" },
 ];
 
-export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
+export default function StudentsPage({
+  onNav,
+  onProbe,
+}: {
+  onNav: (tab: Tab) => void;
+  onProbe: (fileId: string) => void;
+}) {
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
   const [field, setField] = useState("all");
@@ -406,6 +418,8 @@ export default function StudentsPage({ onNav }: { onNav: (tab: Tab) => void }) {
         student={open}
         onClose={() => setOpen(null)}
         onProbe={() => {
+          if (!open?.photo_drive_file_id) return;
+          onProbe(open.photo_drive_file_id);
           setOpen(null);
           onNav("search");
         }}
