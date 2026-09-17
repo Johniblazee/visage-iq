@@ -228,8 +228,90 @@ def _largest(faces):
     return max(faces, key=area)
 
 
+def _rotation_policy(profile: str) -> tuple[tuple[int, ...], str, float]:
+    """(rotations to try, effective mode, early-exit score) for a profile."""
+    if profile == "sync":
+        early_exit = settings.sync_rotation_early_exit_score_value
+        mode = (settings.sync_rotation_mode_value or "fallback").lower()
+        rotation_enabled = settings.sync_rotation_enabled_value
+    else:
+        early_exit = settings.rotation_early_exit_score
+        mode = (settings.rotation_mode or "fallback").lower()
+        rotation_enabled = settings.rotation_enabled
+
+    if not rotation_enabled:
+        mode = "off"  # kill-switch wins
+    if mode not in ("off", "fallback", "always"):
+        mode = "fallback"  # safe default for unknown values
+    rotations = (0,) if mode == "off" else ROTATIONS
+    return rotations, mode, early_exit
+
+
+# SCRFD misses faces LARGER than its biggest anchor scale — extreme close-ups
+# where the face fills the frame (proven on real enrolment data: 0 detections
+# raw, det_score 0.86-0.90 after padding). A symmetric border shrinks the face
+# relative to the canvas; bboxes map back by subtracting the border, which
+# commutes with the 90°-step rotations because the pad is the same on all
+# sides. Tried only when plain detection finds nothing — zero cost otherwise.
+PAD_FRACTION = 0.4
+
+
+def _pad_border(img: np.ndarray) -> tuple[np.ndarray, int]:
+    pad = int(PAD_FRACTION * max(img.shape[:2]))
+    return (
+        cv2.copyMakeBorder(
+            img, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=(255, 255, 255)
+        ),
+        pad,
+    )
+
+
+def _detect_best(
+    app: FaceAnalysis, img: np.ndarray, rotations: tuple[int, ...], mode: str, early_exit: float
+) -> tuple[float, int, list] | None:
+    """(best det_score, rotation, all faces at that rotation) — or None."""
+    best: tuple[float, int, list] | None = None
+    for deg in rotations:
+        faces = app.get(_rotate(img, deg))
+        if not faces:
+            continue  # nothing here; try next rotation (or give up if "off")
+        score = max(float(face.det_score) for face in faces)
+        if best is None or score > best[0]:
+            best = (score, deg, list(faces))
+        if mode == "fallback":
+            # First rotation that hit — accept without spending more cycles.
+            break
+        if mode == "always" and score >= early_exit:
+            break  # detector is confident; no need to keep iterating
+    return best
+
+
+def _detect_with_pad_fallback(
+    app: FaceAnalysis, base: np.ndarray, profile: str
+) -> tuple[tuple[float, int, list], int]:
+    """Run the rotation strategy, then once more on a padded canvas if nothing
+    was found. Returns (best, border) — bboxes are in padded space when
+    border > 0. Raises NoFaceDetected when both passes come up empty."""
+    rotations, mode, early_exit = _rotation_policy(profile)
+    best = _detect_best(app, base, rotations, mode, early_exit)
+    pad = 0
+    if best is None:
+        padded, pad = _pad_border(base)
+        best = _detect_best(app, padded, rotations, mode, early_exit)
+    if best is None:
+        if mode == "off":
+            msg = "No face detected (rotation mode=off, only 0° tried)"
+        elif mode == "fallback":
+            msg = "No face detected at 0° or any fallback rotation (90/180/270)"
+        else:
+            msg = "No face detected at any of 0/90/180/270 rotations"
+        raise NoFaceDetected(msg + ", including the padded close-up retry")
+    return best, pad
+
+
 def embed(image_bytes: bytes, profile: str = "match", model: str | None = None) -> EmbeddingResult:
-    """Detect + embed the largest face, trying 0/90/180/270 rotations.
+    """Detect + embed the largest face, trying 0/90/180/270 rotations and a
+    padded close-up retry when nothing is found.
 
     The rotation that produces the highest-confidence detection is treated as
     canonical. Both ingestion (sync) and inference (/match) call this, so a
@@ -240,58 +322,13 @@ def embed(image_bytes: bytes, profile: str = "match", model: str | None = None) 
     """
     base = _decode(image_bytes)
     app = get_app(profile, model)
-    best: tuple[float, int, object, int] | None = None  # (score, deg, face, n_faces)
-    if profile == "sync":
-        early_exit = settings.sync_rotation_early_exit_score_value
-        mode = (settings.sync_rotation_mode_value or "fallback").lower()
-        rotation_enabled = settings.sync_rotation_enabled_value
-    else:
-        early_exit = settings.rotation_early_exit_score
-        mode = (settings.rotation_mode or "fallback").lower()
-        rotation_enabled = settings.rotation_enabled
-
-    # Resolve the effective rotation mode.
-    if not rotation_enabled:
-        mode = "off"  # kill-switch wins
-    if mode not in ("off", "fallback", "always"):
-        mode = "fallback"  # safe default for unknown values
-
-    rotations = (0,) if mode == "off" else ROTATIONS
-
-    for deg in rotations:
-        rotated = _rotate(base, deg)
-        faces = app.get(rotated)
-        if not faces:
-            continue  # nothing here; try next rotation (or give up if "off")
-
-        face = _largest(faces)
-        score = float(face.det_score)
-        if best is None or score > best[0]:
-            best = (score, deg, face, len(faces))
-
-        if mode == "fallback":
-            # 0° (or whichever first rotation hit) found a face — accept it
-            # without spending cycles on the remaining rotations.
-            break
-        if mode == "always" and score >= early_exit:
-            # Detector is confident; no need to keep iterating.
-            break
-
-    if best is None:
-        if mode == "off":
-            msg = "No face detected (rotation mode=off, only 0° tried)"
-        elif mode == "fallback":
-            msg = "No face detected at 0° or any fallback rotation (90/180/270)"
-        else:
-            msg = "No face detected at any of 0/90/180/270 rotations"
-        raise NoFaceDetected(msg)
-
-    score, rotation, face, count = best
+    (score, rotation, faces), pad = _detect_with_pad_fallback(app, base, profile)
+    face = _largest(faces)
     return EmbeddingResult(
         embedding=np.asarray(face.normed_embedding, dtype=np.float32),
-        bbox=[int(v) for v in face.bbox],
-        det_score=score,
-        face_count=count,
+        bbox=[int(v) - pad for v in face.bbox],
+        det_score=float(face.det_score),
+        face_count=len(faces),
         rotation=rotation,
     )
 
@@ -307,52 +344,11 @@ def embed_many(
     """
     base = _decode(image_bytes)
     app = get_app(profile, model)
-    if profile == "sync":
-        early_exit = settings.sync_rotation_early_exit_score_value
-        mode = (settings.sync_rotation_mode_value or "fallback").lower()
-        rotation_enabled = settings.sync_rotation_enabled_value
-    else:
-        early_exit = settings.rotation_early_exit_score
-        mode = (settings.rotation_mode or "fallback").lower()
-        rotation_enabled = settings.rotation_enabled
-
-    if not rotation_enabled:
-        mode = "off"
-    if mode not in ("off", "fallback", "always"):
-        mode = "fallback"
-
-    rotations = (0,) if mode == "off" else ROTATIONS
-    best: tuple[float, int, list[object]] | None = None
-
-    for deg in rotations:
-        rotated = _rotate(base, deg)
-        faces = app.get(rotated)
-        if not faces:
-            continue
-
-        score = max(float(face.det_score) for face in faces)
-        if best is None or score > best[0]:
-            best = (score, deg, list(faces))
-
-        if mode == "fallback":
-            break
-        if mode == "always" and score >= early_exit:
-            break
-
-    if best is None:
-        if mode == "off":
-            msg = "No face detected (rotation mode=off, only 0° tried)"
-        elif mode == "fallback":
-            msg = "No face detected at 0° or any fallback rotation (90/180/270)"
-        else:
-            msg = "No face detected at any of 0/90/180/270 rotations"
-        raise NoFaceDetected(msg)
-
-    _, rotation, faces = best
+    (_, rotation, faces), pad = _detect_with_pad_fallback(app, base, profile)
     results = [
         EmbeddingResult(
             embedding=np.asarray(face.normed_embedding, dtype=np.float32),
-            bbox=[int(v) for v in face.bbox],
+            bbox=[int(v) - pad for v in face.bbox],
             det_score=float(face.det_score),
             face_count=len(faces),
             rotation=rotation,

@@ -51,6 +51,8 @@ export default function App() {
   const [model, setModel] = useState(() => localStorage.getItem("visageiq-model") || "");
   const dirtyRef = useRef(false); // local dial change not yet written back
   const patchTimer = useRef(0);
+  // Set by "Use as probe" on a student record; SearchPage consumes it once.
+  const [probeFileId, setProbeFileId] = useState<string | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState("");
   const [worker, setWorker] = useState<WorkerStatus | null>(null);
@@ -313,8 +315,15 @@ export default function App() {
             )}
           </div>
         </header>
-        {page === "search" && <SearchPage cfg={cfg} model={activeModel} />}
-        {page === "students" && <StudentsPage onNav={setPage} />}
+        {page === "search" && (
+          <SearchPage
+            cfg={cfg}
+            model={activeModel}
+            probeFileId={probeFileId}
+            onProbeConsumed={() => setProbeFileId(null)}
+          />
+        )}
+        {page === "students" && <StudentsPage onNav={setPage} onProbe={setProbeFileId} />}
         {page === "analytics" && <AnalyticsPage activeSync={activeSync} onOpsChanged={refreshOps} />}
         {page === "settings" && (
           <SettingsPage
