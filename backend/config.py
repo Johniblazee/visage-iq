@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     match_rate_limit: str = "30/minute"
     sync_rate_limit: str = "5/minute"
 
+    # --- video match (uploaded clips) ---
+    video_sample_fps: float = 2.0        # frames analysed per second of video
+    video_min_face_px: int = 40          # skip detections whose bbox short side is smaller
+    video_max_upload_mb: int = 500
+    video_max_duration_s: int = 900
+    # Shared volume: the api writes uploads here, worker-video reads and deletes them.
+    video_upload_dir: str = "/data/video-uploads"
+    video_rate_limit: str = "10/hour"
+
     # --- student directory (Google Sheet) ---
     students_sheet_id: str = ""          # empty = feature disabled
     students_worksheet: str = "passports"

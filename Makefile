@@ -19,8 +19,8 @@ PORT_API     ?= 8000
 PORT_UI      ?= 3000
 
 # GPU detection — if the host has nvidia-smi *and* it works, layer
-# docker-compose.gpu.yml on top of the base compose file so the api +
-# worker services request the GPU. Otherwise run CPU-only.
+# docker-compose.gpu.yml on top of the base compose file so the api,
+# worker and worker-video services request the GPU. Otherwise run CPU-only.
 COMPOSE_FILES := -f docker-compose.yml $(shell command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1 && echo "-f docker-compose.gpu.yml")
 COMPOSE        := docker compose $(COMPOSE_FILES)
 
@@ -30,7 +30,7 @@ PIP   = $(VENV)/bin/pip
 
 .DEFAULT_GOAL := help
 .PHONY: help install env api worker ui sync init-db \
-        up down logs logs-api logs-worker logs-ui ps rebuild \
+        up down logs logs-api logs-worker logs-worker-video logs-ui ps rebuild \
         compose-sync compose-shell psql redis-cli health check clean nuke
 
 help:  ## Show this help
@@ -80,7 +80,7 @@ up:  ## docker compose up --build -d (auto-detects GPU; honors WORKER_REPLICAS i
 	$(DOTENV) $(COMPOSE) up --build -d --scale worker=$${WORKER_REPLICAS:-1}
 
 down:  ## docker compose down
-	$(COMPOSE) down
+	$(COMPOSE) down --remove-orphans
 
 logs:  ## Tail logs for all compose services
 	$(COMPOSE) logs -f
@@ -90,6 +90,9 @@ logs-api:  ## Tail logs for the api container
 
 logs-worker:  ## Tail logs for the worker container
 	$(COMPOSE) logs -f worker
+
+logs-worker-video:  ## Tail logs for the video worker container
+	$(COMPOSE) logs -f worker-video
 
 logs-ui:  ## Tail logs for the ui container
 	$(COMPOSE) logs -f ui
@@ -132,5 +135,5 @@ clean:  ## Remove __pycache__ and *.pyc
 	find . -type f -name '*.pyc' -delete
 
 nuke:  ## DESTRUCTIVE: docker compose down -v (drops db + redis volumes)
-	@echo "About to drop ALL compose volumes (db data + redis data + insightface models)."
+	@echo "About to drop ALL compose volumes (db data + redis data + insightface models + video uploads)."
 	@read -p "Type 'yes' to confirm: " ans && [ "$$ans" = "yes" ] && $(COMPOSE) down -v

@@ -37,6 +37,7 @@ services:
     env_file: .env
     volumes:
       - insightface-models:/root/.insightface
+      - video-uploads:/data/video-uploads
     depends_on:
       db:
         condition: service_healthy
@@ -60,6 +61,22 @@ services:
       redis:
         condition: service_healthy
     command: ["rq", "worker", "--url", "redis://redis:6379/0", "sync"]
+
+  worker-video:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - insightface-models:/root/.insightface
+      - video-uploads:/data/video-uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["rq", "worker", "--url", "redis://redis:6379/0", "video"]
 
   ui:
     build:
@@ -93,3 +110,4 @@ volumes:
   pgdata:
   redisdata:
   insightface-models:
+  video-uploads:

@@ -103,3 +103,42 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS audit_ts_idx ON audit_log (ts DESC);
 CREATE INDEX IF NOT EXISTS audit_actor_idx ON audit_log (actor);
+
+-- Video match: one row per uploaded clip, one per enrolled photo seen in it.
+-- Evidence is two small JPEGs per sighting; no embeddings, no frames.
+CREATE TABLE IF NOT EXISTS video_jobs (
+    id               UUID PRIMARY KEY,
+    actor            TEXT NOT NULL,
+    filename         TEXT NOT NULL,
+    size_bytes       BIGINT NOT NULL,
+    upload_path      TEXT,                     -- NULL once the file is deleted
+    status           TEXT NOT NULL,            -- queued | running | done | failed
+    error            TEXT,
+    detail           TEXT,
+    duration_s       REAL,
+    fps              REAL,
+    width            INTEGER,
+    height           INTEGER,
+    sampled_frames   INTEGER NOT NULL DEFAULT 0,
+    faces_seen       INTEGER NOT NULL DEFAULT 0,
+    unknown_faces    INTEGER NOT NULL DEFAULT 0,
+    match_threshold  REAL,
+    review_threshold REAL,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at       TIMESTAMPTZ,
+    finished_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS video_jobs_created_idx ON video_jobs (created_at DESC);
+CREATE TABLE IF NOT EXISTS video_sightings (
+    job_id           UUID NOT NULL REFERENCES video_jobs(id) ON DELETE CASCADE,
+    drive_file_id    TEXT NOT NULL,
+    best_similarity  REAL NOT NULL,
+    best_ts          REAL NOT NULL,
+    first_ts         REAL NOT NULL,
+    last_ts          REAL NOT NULL,
+    frames_seen      INTEGER NOT NULL,
+    timestamps       REAL[] NOT NULL,
+    frame_jpeg       BYTEA NOT NULL,
+    crop_jpeg        BYTEA NOT NULL,
+    PRIMARY KEY (job_id, drive_file_id)
+);

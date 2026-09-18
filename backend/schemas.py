@@ -180,3 +180,49 @@ class StudentFacets(BaseModel):
     levels: list[str]
     total: int
     last_sync: dict | None = None
+
+
+class VideoEnqueueResponse(BaseModel):
+    job_id: str
+
+
+class VideoJob(BaseModel):
+    id: str
+    actor: str
+    filename: str
+    size_bytes: int
+    status: str
+    error: str | None = None
+    detail: str | None = None
+    duration_s: float | None = None
+    fps: float | None = None
+    width: int | None = None
+    height: int | None = None
+    sampled_frames: int = 0
+    faces_seen: int = 0
+    unknown_faces: int = 0
+    match_threshold: float | None = None
+    review_threshold: float | None = None
+    created_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    progress: dict | None = None
+
+
+class VideoSighting(BaseModel):
+    drive_file_id: str
+    title: str | None = None
+    student: StudentRef | None = None
+    best_similarity: float
+    confidence_pct: float
+    verdict: Verdict
+    best_ts: float
+    first_ts: float
+    last_ts: float
+    frames_seen: int
+    timestamps: list[float]
+
+
+class VideoResults(BaseModel):
+    job: VideoJob
+    sightings: list[VideoSighting]

@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 SYNC_QUEUE = "sync"
 SYNC_JOB_TIMEOUT = 60 * 60
+VIDEO_QUEUE = "video"
+VIDEO_JOB_TIMEOUT = 30 * 60
 
 
 @lru_cache(maxsize=1)
@@ -58,8 +60,21 @@ def enqueue_students_sync() -> str:
     return job.id
 
 
+def enqueue_video(job_id: str) -> str:
+    # RQ job id == video_jobs.id so the API can read progress by the same key.
+    job = Queue(VIDEO_QUEUE, connection=get_redis()).enqueue(
+        "backend.video.run_video_job", job_id, job_id=job_id, job_timeout=VIDEO_JOB_TIMEOUT,
+    )
+    return job.id
+
+
 def fetch_job(job_id: str):
     return get_queue().fetch_job(job_id)
+
+
+def fetch_video_job(job_id: str):
+    # Queue.fetch_job returns None for jobs whose origin is another queue.
+    return Queue(VIDEO_QUEUE, connection=get_redis()).fetch_job(job_id)
 
 
 def is_job_alive(job_id: str | None) -> bool:

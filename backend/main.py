@@ -1,15 +1,16 @@
 import logging
+import os
+import uuid
 from contextlib import asynccontextmanager
 from typing import Literal
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-
-from psycopg import sql as pgsql
 
 from backend.cache import (
     clear_active_sync,
@@ -27,7 +28,6 @@ from backend.cache import (
 from backend.config import settings
 from backend.db import bootstrap_schema, pool
 from backend.embedding import (
-    EmbeddingResult,
     InvalidImage,
     NoFaceDetected,
     embed,
@@ -41,14 +41,15 @@ from backend.queue import (
     enqueue_retry,
     enqueue_students_sync,
     enqueue_sync,
+    enqueue_video,
     fetch_job,
+    fetch_video_job,
 )
-from backend import analytics, audit, scoring, students
+from backend import analytics, audit, gallery, scoring, students, video_store
 from backend.auth import actor_of, clerk_middleware
 from backend.schemas import (
     AnalyticsSummary,
     AuditPage,
-    Candidate,
     ConfigResponse,
     ConfigUpdate,
     ModelInfo,
@@ -61,13 +62,16 @@ from backend.schemas import (
     RetryRequest,
     StudentFacets,
     StudentPage,
-    StudentRef,
     StudentRow,
     SyncEnqueueResponse,
     SyncJobStatus,
-    Verdict,
+    VideoEnqueueResponse,
+    VideoJob,
+    VideoResults,
+    VideoSighting,
     WorkerStatus,
 )
+from backend.video import VideoError, probe
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -127,14 +131,6 @@ def _effective_config() -> tuple[float, float, int]:
     return match_t, review_t, top_k
 
 
-def _verdict(similarity: float, match_t: float, review_t: float) -> Verdict:
-    if similarity >= match_t:
-        return "MATCH"
-    if similarity >= review_t:
-        return "REVIEW"
-    return "NO_MATCH"
-
-
 def _resolve_model(model: str | None) -> str:
     """Validate a ?model= query value against the configured packs."""
     if not model:
@@ -159,66 +155,6 @@ def _enrolled_count(model: str | None = None) -> int:
     except Exception:
         logger.exception("enrolled count query failed")
         return 0
-
-
-_STUDENT_JOIN = (
-    "LEFT JOIN LATERAL (SELECT full_name, student_id, location, programme "
-    "                   FROM students st WHERE st.photo_drive_file_id = p.drive_file_id "
-    "                   ORDER BY st.id LIMIT 1) s ON TRUE "
-)
-
-_PRIMARY_SEARCH_SQL = (
-    "SELECT p.drive_file_id, p.drive_file_name, "
-    "       1 - (p.face_embedding <=> %s) AS similarity, "
-    "       s.full_name, s.student_id, s.location, s.programme "
-    "FROM persons p "
-    + _STUDENT_JOIN +
-    "ORDER BY p.face_embedding <=> %s "
-    "LIMIT %s"
-)
-
-# Compare-model search. The model name is inlined as a literal (validated
-# against the COMPARE_MODELS allowlist first) so the planner can match the
-# per-model partial HNSW index — a bind parameter would force a full scan.
-_ALT_SEARCH_SQL = pgsql.SQL(
-    "SELECT p.drive_file_id, p.drive_file_name, "
-    "       1 - (a.embedding <=> %s) AS similarity, "
-    "       s.full_name, s.student_id, s.location, s.programme "
-    "FROM alt_embeddings a "
-    "JOIN persons p ON p.drive_file_id = a.drive_file_id "
-    + _STUDENT_JOIN +
-    "WHERE a.model = {} "
-    "ORDER BY a.embedding <=> %s "
-    "LIMIT %s"
-)
-
-
-def _search(
-    result: EmbeddingResult, top_k: int, model: str, match_t: float, review_t: float
-) -> list[Candidate]:
-    emb = result.embedding
-    with pool.connection() as conn, conn.cursor() as cur:
-        if model == settings.insightface_model:
-            cur.execute(_PRIMARY_SEARCH_SQL, (emb, emb, top_k))
-        else:
-            cur.execute(_ALT_SEARCH_SQL.format(pgsql.Literal(model)), (emb, emb, top_k))
-        rows = cur.fetchall()
-    out: list[Candidate] = []
-    for file_id, title, sim, s_name, s_sid, s_loc, s_prog in rows:
-        sim_f = float(sim)
-        out.append(
-            Candidate(
-                drive_file_id=file_id,
-                title=title,
-                similarity=sim_f,
-                confidence_pct=scoring.confidence_pct(sim_f),
-                verdict=_verdict(sim_f, match_t, review_t),
-                student=StudentRef(
-                    full_name=s_name, student_id=s_sid, location=s_loc, programme=s_prog
-                ) if s_name else None,
-            )
-        )
-    return out
 
 
 def _lookup_modified_time(file_id: str) -> str | None:
@@ -283,7 +219,7 @@ async def match(
     except InvalidImage as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    candidates = _search(result, top_k, model_name, match_t, review_t)
+    candidates = gallery.search(result, top_k, model_name, match_t, review_t)
     audit.record(
         actor_of(request), "face_search",
         target=candidates[0].drive_file_id if candidates else None,
@@ -327,7 +263,7 @@ async def match_many(
             face_index=idx,
             bbox=face.bbox,
             det_score=face.det_score,
-            candidates=_search(face, top_k, model_name, match_t, review_t),
+            candidates=gallery.search(face, top_k, model_name, match_t, review_t),
         )
         for idx, face in enumerate(result.faces)
     ]
@@ -583,6 +519,141 @@ def trigger_students_sync(request: Request) -> SyncEnqueueResponse:
     job_id = enqueue_students_sync()
     audit.record(actor_of(request), "students_sync_triggered", target=job_id)
     return SyncEnqueueResponse(job_id=job_id)
+
+
+def _rm(path: str) -> None:
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def _video_job(job_id: str) -> VideoJob:
+    row = video_store.get_job(job_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Video job not found")
+    progress = None
+    if row["status"] in ("queued", "running"):
+        job = fetch_video_job(job_id)
+        if job is None or job.is_failed:
+            # The worker died before recording a terminal state — reconcile on read.
+            logger.warning("video %s: RQ job %s while row was %s — marking failed",
+                           job_id, "missing" if job is None else "failed", row["status"])
+            if row.get("upload_path"):
+                _rm(row["upload_path"])
+            video_store.set_status(job_id, "failed",
+                                   error="The video worker stopped before finishing — please upload again.")
+            row = video_store.get_job(job_id) or row
+        else:
+            progress = (job.meta or {}).get("progress")
+    row.pop("upload_path", None)  # never leak a server path
+    return VideoJob(**row, progress=progress)
+
+
+@app.post("/video", response_model=VideoEnqueueResponse)
+@limiter.limit(settings.video_rate_limit)
+async def video_upload(request: Request, file: UploadFile = File(...)) -> VideoEnqueueResponse:
+    limit = settings.video_max_upload_mb * 1024 * 1024
+    too_big = HTTPException(status_code=413, detail=f"Video is too large — the limit is {settings.video_max_upload_mb} MB.")
+    if int(request.headers.get("content-length") or 0) > limit + 1024 * 1024:
+        raise too_big
+    job_id = str(uuid.uuid4())
+    ext = os.path.splitext(file.filename or "")[1].lower()[:8]
+    if not ext[1:].isalnum():  # client-controlled; keep it a plain suffix
+        ext = ".bin"
+    os.makedirs(settings.video_upload_dir, exist_ok=True)
+    path = os.path.join(settings.video_upload_dir, f"{job_id}{ext}")
+    size = 0
+    try:
+        with open(path, "wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise too_big
+                out.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
+        info = await run_in_threadpool(probe, path)
+        if info.duration_s > settings.video_max_duration_s:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Clip is {info.duration_s / 60:.1f} min long; the limit is {settings.video_max_duration_s // 60} minutes.",
+            )
+        match_t, review_t, _ = _effective_config()
+        actor = actor_of(request)
+        video_store.create_job(job_id, actor, file.filename or "video", size, path, info, match_t, review_t)
+        enqueue_video(job_id)
+    except VideoError as exc:
+        _rm(path)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        _rm(path)
+        raise
+    except Exception:
+        _rm(path)
+        try:  # no-op UPDATE if we failed before create_job
+            video_store.set_status(job_id, "failed", error="Couldn't queue the video for processing — please try again.")
+        except Exception:
+            logger.exception("video %s: could not mark job failed", job_id)
+        raise
+    audit.record(actor, "video_upload", target=job_id,
+                 details={"size_bytes": size, "duration_s": round(info.duration_s, 1)})
+    return VideoEnqueueResponse(job_id=job_id)
+
+
+@app.get("/video", response_model=list[VideoJob])
+def video_jobs(request: Request) -> list[VideoJob]:
+    out = []
+    for row in video_store.list_jobs():
+        row.pop("upload_path", None)
+        out.append(VideoJob(**row))
+    return out
+
+
+@app.get("/video/{job_id}", response_model=VideoJob)
+def video_job(request: Request, job_id: uuid.UUID) -> VideoJob:
+    return _video_job(str(job_id))
+
+
+@app.get("/video/{job_id}/results", response_model=VideoResults)
+def video_results(request: Request, job_id: uuid.UUID) -> VideoResults:
+    job = _video_job(str(job_id))
+    match_t = job.match_threshold or settings.match_threshold
+    review_t = job.review_threshold or settings.review_threshold
+    sightings = [
+        VideoSighting(**r, confidence_pct=scoring.confidence_pct(r["best_similarity"]),
+                      verdict=gallery.verdict(r["best_similarity"], match_t, review_t))
+        for r in video_store.results(str(job_id))
+    ]
+    audit.record(actor_of(request), "video_results", target=str(job_id), details={"students": len(sightings)})
+    return VideoResults(job=job, sightings=sightings)
+
+
+@app.get("/video/{job_id}/{kind}/{drive_file_id}")
+def video_evidence(request: Request, job_id: uuid.UUID, kind: Literal["frame", "crop"], drive_file_id: str) -> Response:
+    data = video_store.evidence(str(job_id), drive_file_id, kind)
+    if data is None:
+        raise HTTPException(status_code=404, detail="No evidence for this student in this job")
+    audit.record(actor_of(request), "image_view", target=drive_file_id, details={"video_job": str(job_id), "kind": kind})
+    return Response(content=data, media_type="image/jpeg")
+
+
+@app.delete("/video/{job_id}")
+def video_delete(request: Request, job_id: uuid.UUID) -> dict:
+    row = video_store.get_job(str(job_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Video job not found")
+    if row["upload_path"]:  # queued job: the worker would never reach its own cleanup
+        _rm(row["upload_path"])
+    job = fetch_video_job(str(job_id))
+    if job is not None and row["status"] == "queued":
+        try:
+            job.cancel()
+        except Exception:
+            logger.debug("video %s: cancel skipped", job_id, exc_info=True)
+    video_store.delete_job(str(job_id))
+    audit.record(actor_of(request), "video_delete", target=str(job_id))
+    return {"deleted": str(job_id)}
 
 
 @app.get("/image/{file_id}")

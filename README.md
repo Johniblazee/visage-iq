@@ -15,6 +15,7 @@ Built for internal review tooling: every result is decision-*support* for a huma
 - **Sub-second top-K queries** at hundreds of thousands of rows via pgvector's HNSW index.
 - **Background sync** with RQ workers + APScheduler — folder changes propagate every 30 minutes automatically, and a manual *Sync now* button is one click away.
 - **React UI** for uploads, candidate cards with confidence bars, sync controls, analytics, and verdict bands (`MATCH` / `REVIEW` / `NO_MATCH`).
+- **Video match.** Upload a clip and get an attendance roll — every enrolled student seen, with timestamps and a best-frame crop; frames stay in memory, nothing is written to the index, the upload is deleted afterwards (see [Video match](#video-match)).
 - **Rate limiting** per IP via slowapi + Redis.
 - **One-command local stack** with Docker Compose and a self-documenting `Makefile`.
 - **One-click cloud deploy** with a Render Blueprint (`render.yaml`).
@@ -234,6 +235,52 @@ OpenAPI docs are auto-generated at http://localhost:8000/docs.
 
 ---
 
+## Video match
+
+Upload a short clip (CCTV export, phone video) and get an **attendance roll**:
+every enrolled student identifiable in it, with the evidence to find them in
+the original footage.
+
+How it works: the api streams the upload to a shared volume, probes it, and
+queues a job on the `video` RQ queue; `worker-video` samples frames in memory
+(`VIDEO_SAMPLE_FPS`, default 2), runs the same detect + embed as face search on
+each, does a top-1 gallery search per face, and aggregates per enrolled photo:
+best score, every matched timestamp, the best full frame (face box drawn) and
+a face crop. Results land in `video_jobs` / `video_sightings`.
+
+Hard rules — these are design invariants, not defaults:
+
+- **Nothing from a video is ever written to the enrolled index.** Frame
+  embeddings live in memory for the duration of a frame.
+- **Frames are never persisted.** No `frames/` directory, no per-frame files.
+- **The uploaded video is deleted when the job ends**, success or failure
+  (and a sweep removes anything a killed worker left behind after a day).
+- Evidence kept per matched student: timestamps, one frame JPEG (≤ 1280 px),
+  one crop JPEG (256 px) — ~150 KB per student per video. Unidentified faces
+  are only counted.
+- Every upload, result view and evidence view is audited.
+
+Accepted inputs are decided by content, not extension: anything OpenCV's
+bundled ffmpeg decodes (MP4/MOV with H.264/H.265, AVI, MKV, WebM, MPEG-TS,
+3GP, WMV, FLV). Vendor-native containers (`.dav`, raw `.h264`) are rejected
+with "Couldn't decode this video — export it as MP4 (H.264) and try again."
+Limits: `VIDEO_MAX_UPLOAD_MB` (500) and `VIDEO_MAX_DURATION_S` (900).
+
+Operations:
+
+```bash
+make logs-worker-video                                            # tail the video worker
+docker compose exec -T worker-video python -m scripts.video_smoke # end-to-end check on a synthesised clip
+```
+
+The smoke test builds a 3 s clip from a random enrolled photo, runs the job
+in-process, asserts that student is on the roll and that the upload is gone,
+then deletes its own job. On the GPU a 5-minute clip (600 sampled frames)
+takes roughly 20–40 s.
+
+Note: *Pause worker* (`POST /worker/pause`) suspends every RQ worker, so a
+queued video waits until you resume.
+
 ## Configuration
 
 All configuration lives in `.env` (local) or service environment variables (Render). Defaults are sane; only `GDRIVE_FOLDER_ID` and credentials are required.
@@ -270,6 +317,12 @@ All configuration lives in `.env` (local) or service environment variables (Rend
 | `CLERK_SECRET_KEY` | *(empty = auth off)* | Clerk secret key. When set, every endpoint except `/health` requires a signed-in `@miva.university` Google account (bearer token or `__session` cookie). |
 | `VITE_CLERK_PUBLISHABLE_KEY` | *(empty = auth off)* | Clerk publishable key, baked into the UI build; shows the Google sign-in gate |
 | `ALLOWED_EMAIL_DOMAIN` | `miva.university` | Server-side email-domain check on every request |
+| `VIDEO_SAMPLE_FPS` | `2` | Frames analysed per second of video |
+| `VIDEO_MIN_FACE_PX` | `40` | Skip detections smaller than this (short side of bbox) |
+| `VIDEO_MAX_UPLOAD_MB` | `500` | Reject larger uploads with 413 |
+| `VIDEO_MAX_DURATION_S` | `900` | Reject longer clips |
+| `VIDEO_UPLOAD_DIR` | `/data/video-uploads` | Shared volume for uploads (api writes, worker-video reads and deletes) |
+| `VIDEO_RATE_LIMIT` | `10/hour` | Per-IP slowapi limit on `POST /video` |
 
 ---
 
@@ -386,6 +439,12 @@ requirements.txt
 | `POST` | `/worker/pause` | Suspend RQ workers — no new jobs dequeued; in-flight jobs finish |
 | `POST` | `/worker/resume` | Clear the suspension flag |
 | `GET` | `/image/{file_id}` | Drive-image proxy (Redis-cached) for thumbnails |
+| `POST` | `/video` | Upload a clip (multipart `file`, ≤ `VIDEO_MAX_UPLOAD_MB`, ≤ `VIDEO_MAX_DURATION_S`); probed by content, queued on the `video` RQ queue → `{job_id}`. Rate-limited per IP by `VIDEO_RATE_LIMIT`. |
+| `GET` | `/video` | Recent video jobs (last 50) |
+| `GET` | `/video/{job_id}` | Job status + live `progress` (`phase`/`current`/`total`/`faces_seen`); a job whose worker died is reconciled to `failed` on read |
+| `GET` | `/video/{job_id}/results` | The roll: per matched student `confidence_pct`, `verdict`, all `timestamps`, `first_ts`/`last_ts`/`best_ts`, `frames_seen` |
+| `GET` | `/video/{job_id}/frame/{file_id}` · `/crop/{file_id}` | Evidence JPEGs (best full frame with the face box; face crop) |
+| `DELETE` | `/video/{job_id}` | Remove a job and its evidence |
 | `GET` | `/analytics/summary` | Outcome counts, extension distribution, outcome×ext matrix |
 | `GET` | `/analytics/files` | Paginated `file_status` rows with `outcome` / `ext` / `q` filters |
 | `GET` | `/docs` | Auto-generated OpenAPI |

@@ -360,3 +360,19 @@ def embed_many(
         for face in sorted(faces, key=lambda face: float(face.bbox[0]))
     ]
     return MultiEmbeddingResult(faces=results, rotation=rotation)
+
+
+def embed_frame(frame_bgr: np.ndarray, profile: str = "match", model: str | None = None) -> list[EmbeddingResult]:
+    """All faces in an already-decoded BGR frame at rotation 0 (video frames
+    are upright; the rotation search exists for scanned passports)."""
+    faces = get_app(profile, model).get(frame_bgr)
+    return [
+        EmbeddingResult(
+            embedding=np.asarray(face.normed_embedding, dtype=np.float32),
+            bbox=[int(v) for v in face.bbox],
+            det_score=float(face.det_score),
+            face_count=len(faces),
+            rotation=0,
+        )
+        for face in faces
+    ]
