@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("insightface")
 pytest.importorskip("pillow_heif")
 
 from backend import sync  # noqa: E402

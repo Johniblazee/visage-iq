@@ -347,19 +347,58 @@ function JobCard({
   );
 }
 
-function RecentVideos({
-  rows,
-  onOpen,
-  onDelete,
-}: {
-  rows: VideoJob[];
-  onOpen: (j: VideoJob) => void;
-  onDelete: (j: VideoJob) => void;
-}) {
-  const [confirm, setConfirm] = useState<string | null>(null);
+function RecentVideos({ rows, onOpen, onDelete }: { rows: VideoJob[]; onOpen: (j: VideoJob) => void; onDelete: (ids: string[]) => void }) {
+  const [q, setQ] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirm, setConfirm] = useState<string | null>(null); // a job id, or "*" for the selection
   const badge = (j: VideoJob) => (j.status === "done" ? "match" : j.status === "failed" ? "no" : "review");
+  const visible = rows.filter((j) => j.filename.toLowerCase().includes(q.trim().toLowerCase()));
+  const chosen = visible.filter((j) => selected.has(j.id)); // ids that vanished on refresh drop out here
+  const allVisible = visible.length > 0 && chosen.length === visible.length;
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const del = (ids: string[]) => {
+    setConfirm(null);
+    setSelected(new Set());
+    onDelete(ids);
+  };
+  const confirmRow = (ids: string[], what: string) => (
+    <div className="row" style={{ gap: "var(--s-2)", flexWrap: "nowrap" }}>
+      <span className="muted" style={{ maxWidth: "28ch" }}>
+        Delete results for {what}? The clip{ids.length > 1 ? "s were" : " was"} already removed.
+      </span>
+      <Button kind="primary" size="sm" onClick={() => del(ids)}>
+        Delete
+      </Button>
+      <Button kind="ghost" size="sm" onClick={() => setConfirm(null)}>
+        Keep
+      </Button>
+    </div>
+  );
   return (
-    <Panel title="Recent videos" meta={rows.length ? `${rows.length} processed` : undefined} pad={false}>
+    <Panel
+      title="Recent videos"
+      meta={rows.length ? `${rows.length} processed` : undefined}
+      pad={false}
+      action={
+        rows.length > 0 && (
+          <div className="searchbar" style={{ height: 40, width: "min(320px, 100%)" }}>
+            <Icon name="search" size={16} color="var(--txt-3)" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by file name" aria-label="Filter videos" />
+            {q && (
+              <button className="icon-btn" onClick={() => setQ("")} aria-label="Clear filter">
+                <Icon name="x" size={14} />
+              </button>
+            )}
+          </div>
+        )
+      }
+    >
       <div className="card-pad">
         {!rows.length ? (
           <div className="empty">
@@ -370,8 +409,34 @@ function RecentVideos({
           </div>
         ) : (
           <div className="vid-list">
-            {rows.map((j) => (
+            <div className="vid-row">
+              <input
+                type="checkbox"
+                checked={allVisible}
+                disabled={!visible.length}
+                onChange={(e) => setSelected(e.target.checked ? new Set(visible.map((j) => j.id)) : new Set())}
+                aria-label="Select all"
+              />
+              {confirm === "*" ? (
+                confirmRow(chosen.map((j) => j.id), `${chosen.length} videos`)
+              ) : chosen.length ? (
+                <>
+                  <span className="muted">{chosen.length} selected</span>
+                  <Button kind="ghost" size="sm" onClick={() => setConfirm("*")}>
+                    <Icon name="trash" size={14} /> Delete selected
+                  </Button>
+                  <Button kind="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                    Clear
+                  </Button>
+                </>
+              ) : (
+                <span className="muted">{q ? `${visible.length} of ${rows.length}` : "Select all"}</span>
+              )}
+            </div>
+            {!visible.length && <div className="muted" style={{ padding: "var(--s-3) 0" }}>No videos match “{q}”.</div>}
+            {visible.map((j) => (
               <div key={j.id} className="vid-row">
+                <input type="checkbox" checked={selected.has(j.id)} onChange={() => toggle(j.id)} aria-label={"Select " + j.filename} />
                 <button className="vid-name" onClick={() => onOpen(j)}>
                   <b>{j.filename}</b>
                   <span className="muted">
@@ -384,24 +449,7 @@ function RecentVideos({
                   {j.status === "failed" ? j.error : j.status === "done" ? `${j.faces_seen} faces seen` : ""}
                 </span>
                 {confirm === j.id ? (
-                  <div className="row" style={{ gap: "var(--s-2)", flexWrap: "nowrap" }}>
-                    <span className="muted" style={{ maxWidth: "24ch" }}>
-                      Delete this video's results? The clip itself was already removed.
-                    </span>
-                    <Button
-                      kind="primary"
-                      size="sm"
-                      onClick={() => {
-                        setConfirm(null);
-                        onDelete(j);
-                      }}
-                    >
-                      Delete
-                    </Button>
-                    <Button kind="ghost" size="sm" onClick={() => setConfirm(null)}>
-                      Keep
-                    </Button>
-                  </div>
+                  confirmRow([j.id], "this video")
                 ) : (
                   <button className="icon-btn" aria-label={"Delete results for " + j.filename} onClick={() => setConfirm(j.id)}>
                     <Icon name="trash" size={15} />
@@ -539,15 +587,16 @@ export default function VideoPage() {
     }
   }
 
-  async function remove(j: VideoJob) {
-    try {
-      await apiRequest(`/video/${j.id}`, { method: "DELETE" });
-      toast("ok", "Results deleted");
-      if (active?.id === j.id) select(null);
-      loadJobs();
-    } catch (error) {
-      toast("error", "Couldn't delete the results", errorMessage(error));
+  async function remove(ids: string[]) {
+    const outcomes = await Promise.allSettled(ids.map((id) => apiRequest(`/video/${id}`, { method: "DELETE" })));
+    const failed = outcomes.filter((o): o is PromiseRejectedResult => o.status === "rejected");
+    if (failed.length) {
+      toast("error", `Couldn't delete ${failed.length} of ${ids.length}`, errorMessage(failed[0].reason));
+    } else {
+      toast("ok", ids.length === 1 ? "Results deleted" : `${ids.length} results deleted`);
     }
+    if (active && ids.includes(active.id)) select(null);
+    loadJobs();
   }
 
   function closeRoll() {

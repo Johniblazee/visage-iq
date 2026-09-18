@@ -1619,6 +1619,10 @@ td:first-child {
 .vid-row:first-child {
   border-top: 0;
 }
+.vid-row input[type="checkbox"] {
+  flex: none;
+  margin: 0;
+}
 .vid-name {
   flex: 1;
   min-width: 0;

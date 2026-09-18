@@ -4,7 +4,6 @@ import pytest
 from PIL import Image
 
 pytest.importorskip("pypdfium2")
-pytest.importorskip("insightface")
 pytest.importorskip("pillow_heif")
 
 from backend.embedding import _decode, to_display_jpeg  # noqa: E402

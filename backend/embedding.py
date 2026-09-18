@@ -1,15 +1,20 @@
+from __future__ import annotations
+
 import faulthandler
 import io
 import logging
 import sys
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 import pillow_heif
 import pypdfium2 as pdfium
-from insightface.app import FaceAnalysis
 from PIL import Image, ImageOps, UnidentifiedImageError
+
+if TYPE_CHECKING:
+    from insightface.app import FaceAnalysis
 
 from backend.config import settings
 
@@ -33,7 +38,7 @@ def _patch_insightface_face_align() -> None:
     `SimilarityTransform.from_estimate` instead of the deprecated mutating
     `estimate()` method.
 
-    insightface 0.7.3 is unmaintained and calls the deprecated API once per
+    insightface (0.7.3 through 2.0) calls the deprecated API once per
     detected face, flooding logs with a FutureWarning. `from_estimate` is
     numerically identical (verified: max abs diff 0.0 on success; NaN params
     on degenerate input, matching the old path), so embeddings — and the
@@ -66,9 +71,6 @@ def _patch_insightface_face_align() -> None:
         return np.full((2, 3), np.nan, dtype=np.float64)
 
     face_align.estimate_norm = estimate_norm
-
-
-_patch_insightface_face_align()
 
 
 class NoFaceDetected(Exception):
@@ -124,6 +126,11 @@ def _load_app(
         modules or "all",
         det_size,
     )
+    # Imported here, not at module top: insightface (+ onnxruntime) lives only in
+    # the containers. Everything else in this module works without it.
+    from insightface.app import FaceAnalysis
+
+    _patch_insightface_face_align()
     kwargs: dict = {
         "name": model_name,
         "providers": providers,
