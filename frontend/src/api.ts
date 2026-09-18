@@ -181,3 +181,82 @@ export interface AuditRow {
   target?: string | null;
   details?: Record<string, unknown> | null;
 }
+
+export interface VideoJob {
+  id: string;
+  actor: string;
+  filename: string;
+  size_bytes: number;
+  status: "queued" | "running" | "done" | "failed";
+  error?: string | null;
+  detail?: string | null;
+  duration_s?: number | null;
+  fps?: number | null;
+  width?: number | null;
+  height?: number | null;
+  sampled_frames: number;
+  faces_seen: number;
+  unknown_faces: number;
+  match_threshold?: number | null;
+  review_threshold?: number | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  progress?: { phase: string; current: number; total: number; faces_seen: number } | null;
+}
+
+export interface VideoSighting {
+  drive_file_id: string;
+  title?: string | null;
+  student?: CandidateStudent | null;
+  best_similarity: number;
+  confidence_pct: number;
+  verdict: "MATCH" | "REVIEW" | "NO_MATCH";
+  best_ts: number;
+  first_ts: number;
+  last_ts: number;
+  frames_seen: number;
+  timestamps: number[];
+}
+
+export interface VideoResults {
+  job: VideoJob;
+  sightings: VideoSighting[];
+}
+
+// Multipart upload with progress events — fetch() cannot report upload progress.
+export function uploadWithProgress<T = unknown>(
+  path: string,
+  form: FormData,
+  onProgress: (pct: number) => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const send = async () => {
+      const token = getAuthToken ? await getAuthToken() : null;
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", apiUrl(path));
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onerror = () => reject(new Error("The upload was interrupted — check your connection and try again."));
+      xhr.onload = () => {
+        const isJson = (xhr.getResponseHeader("content-type") || "").includes("application/json");
+        let body: unknown = xhr.responseText;
+        if (isJson) {
+          try {
+            body = JSON.parse(xhr.responseText);
+          } catch {
+            /* keep the raw text */
+          }
+        }
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(body as T);
+        const detail = typeof body === "object" && body !== null ? (body as { detail?: string }).detail : null;
+        // The api's own 413 carries the configured limit; nginx's is an HTML page.
+        reject(new Error(detail || (xhr.status === 413 ? "Video is too large." : isJson ? JSON.stringify(body) : xhr.statusText || `Upload failed (${xhr.status})`)));
+      };
+      xhr.send(form);
+    };
+    send().catch(reject);
+  });
+}

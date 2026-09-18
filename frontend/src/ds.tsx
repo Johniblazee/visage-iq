@@ -45,6 +45,26 @@ const GLYPHS: Record<string, ReactNode> = {
       <polyline points="12 7 12 12 15 14" />
     </>
   ),
+  video: (
+    <>
+      <path d="M22 8l-6 4 6 4V8z" />
+      <rect x="2" y="5.5" width="14" height="13" rx="2.5" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <path d="M12 3v12" />
+    </>
+  ),
+  trash: (
+    <>
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+    </>
+  ),
   x: (
     <>
       <line x1="18" y1="6" x2="6" y2="18" />

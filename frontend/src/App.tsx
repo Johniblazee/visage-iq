@@ -5,10 +5,11 @@ import AnalyticsPage from "./components/AnalyticsPage";
 import SearchPage from "./components/SearchPage";
 import SettingsPage from "./components/SettingsPage";
 import StudentsPage from "./components/StudentsPage";
+import VideoPage from "./components/VideoPage";
 import { Icon, toast, ToastHost, VqLockup, VqMark } from "./ds";
 import { formatNumber, relativeTime } from "./format";
 
-export type Tab = "search" | "students" | "analytics" | "settings";
+export type Tab = "search" | "students" | "video" | "analytics" | "settings";
 
 export interface Cfg {
   match: number;
@@ -25,6 +26,7 @@ export const DEFAULT_CFG: Cfg = {
 const NAV: [Tab, string, string][] = [
   ["search", "Face search", "search"],
   ["students", "Student search", "user"],
+  ["video", "Video match", "video"],
   ["analytics", "Analytics", "grid"],
   ["settings", "Settings", "shield"],
 ];
@@ -315,6 +317,7 @@ export default function App() {
         </header>
         {page === "search" && <SearchPage cfg={cfg} model={activeModel} />}
         {page === "students" && <StudentsPage onNav={setPage} />}
+        {page === "video" && <VideoPage />}
         {page === "analytics" && <AnalyticsPage activeSync={activeSync} onOpsChanged={refreshOps} />}
         {page === "settings" && (
           <SettingsPage

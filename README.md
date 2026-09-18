@@ -248,6 +248,8 @@ each, does a top-1 gallery search per face, and aggregates per enrolled photo:
 best score, every matched timestamp, the best full frame (face box drawn) and
 a face crop. Results land in `video_jobs` / `video_sightings`.
 
+In the app: **Video match** in the sidebar — drop a clip, watch the job card (checking → matching → saving), then the roll: one card per identified student (video crop beside the enrolled passport, confidence, verdict, first/last seen, frames seen); click a card for the best frame, every timestamp as a copyable chip, and the student record. Recent videos are listed below the drop zone and can be deleted.
+
 Hard rules — these are design invariants, not defaults:
 
 - **Nothing from a video is ever written to the enrolled index.** Frame
