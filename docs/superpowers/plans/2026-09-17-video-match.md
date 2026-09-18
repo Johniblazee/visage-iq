@@ -1088,6 +1088,8 @@ if __name__ == "__main__":
 
 ### Task 8: Frontend — Video match page (after Task 0 is approved)
 
+> **As built (2026-09-18):** the page follows the approved `Video match.html` / `visageiq/page-video.jsx` design. Deviation from Step 2: the sighting modal is `SightingModal` inside `VideoPage.tsx` (frame view, timestamp chips, tags) rather than a moved `CandidateModal` with an `evidence` prop — the two modals share only the frame/`.kv` classes, so the move bought nothing. Upload progress uses `uploadWithProgress` (XHR) in `api.ts`; selection changes are guarded by a request-sequence counter.
+
 **Files:**
 - Create: `frontend/src/components/VideoPage.tsx`, `frontend/src/components/CandidateModal.tsx`
 - Modify: `frontend/src/api.ts`, `frontend/src/components/SearchPage.tsx` (import the moved modal), `frontend/src/App.tsx`, `frontend/src/ds.tsx`, `frontend/src/index.css`
