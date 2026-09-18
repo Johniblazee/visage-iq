@@ -188,24 +188,33 @@ def sweep_orphans(upload_dir: str, max_age_s: int = ORPHAN_MAX_AGE_S) -> int:
     return removed
 
 
-def match_frame(frame: np.ndarray, min_face_px: int, match_t: float, review_t: float, model: str) -> list[Hit]:
+def match_frame(frame: np.ndarray, min_face_px: int, match_t: float, review_t: float, model: str,
+                min_det_score: float = 0.0, min_margin: float = 0.0) -> list[Hit]:
     """The shared per-frame core (live webcam in v2 feeds it too): detect,
-    drop tiny faces, top-1 gallery search, floor at the review threshold.
-    Read-only against the gallery."""
+    drop tiny/weak faces, gallery search with a margin test, floor at the
+    review threshold. Read-only against the gallery."""
     from backend.embedding import embed_frame
     from backend.gallery import search
 
     hits: list[Hit] = []
     for face in embed_frame(frame, model=model):
         x1, y1, x2, y2 = face.bbox
-        if min(x2 - x1, y2 - y1) < min_face_px:
+        if min(x2 - x1, y2 - y1) < min_face_px or face.det_score < min_det_score:
             continue
-        top = next(iter(search(face, 1, model, match_t, review_t)), None)
-        if top is not None and top.similarity >= review_t:
-            hits.append(Hit(face.bbox, face.det_score, top.drive_file_id, top.similarity))
-        else:
-            hits.append(Hit(face.bbox, face.det_score, None, top.similarity if top else 0.0))
+        # top-3 so one duplicate photo of the same student still leaves a rival to compare against
+        cands = search(face, 3, model, match_t, review_t)
+        top = cands[0] if cands else None
+        rival = next((c for c in cands[1:] if not _same_student(c, top)), None)
+        identified = (top is not None and top.similarity >= review_t
+                      and (rival is None or top.similarity - rival.similarity >= min_margin))
+        hits.append(Hit(face.bbox, face.det_score, top.drive_file_id if identified else None,
+                        top.similarity if top else 0.0))
     return hits
+
+
+def _same_student(a, b) -> bool:
+    return bool(a.student and b.student and a.student.student_id
+                and a.student.student_id == b.student.student_id)
 
 
 def _progress(job, phase: str, current: int, total: int, faces_seen: int) -> None:
@@ -243,7 +252,8 @@ def run_video_job(job_id: str) -> dict:
         _progress(job, "matching", 0, total, 0)
         for sampled, (_, ts, frame) in enumerate(iter_frames(path, indices), start=1):
             hits = match_frame(frame, settings.video_min_face_px, row["match_threshold"],
-                               row["review_threshold"], settings.insightface_model)
+                               row["review_threshold"], settings.insightface_model,
+                               settings.video_min_det_score, settings.video_min_margin)
             for hit in hits:
                 agg.add(ts, hit, frame)
             faces_seen += len(hits)

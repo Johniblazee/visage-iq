@@ -4,7 +4,9 @@ import os
 import numpy as np
 from PIL import Image
 
-from backend.video import Aggregator, Hit, encode_evidence, sample_indices, sweep_orphans
+from backend.embedding import EmbeddingResult
+from backend.schemas import Candidate, StudentRef
+from backend.video import Aggregator, Hit, encode_evidence, match_frame, sample_indices, sweep_orphans
 
 
 def test_sample_indices_spacing_and_bounds():
@@ -52,6 +54,37 @@ def test_aggregator_keeps_best_evidence_and_all_timestamps():
     assert s["B"].frames_seen == 1
     assert agg.unknown_faces == 1
     assert [x.drive_file_id for x in agg.sightings()] == ["A", "B"]  # best first
+
+
+def _face(bbox, det):
+    return EmbeddingResult(embedding=np.zeros(512, np.float32), bbox=bbox, det_score=det, face_count=1, rotation=0)
+
+
+def _cand(fid, sim, sid):
+    return Candidate(drive_file_id=fid, title=fid, similarity=sim, confidence_pct=0, verdict="MATCH",
+                     student=StudentRef(full_name=fid, student_id=sid))
+
+
+def test_match_frame_gates(monkeypatch):
+    import backend.embedding as emb
+    import backend.gallery as gal
+
+    faces = [_face([0, 0, 100, 100], 0.9),   # clear winner
+             _face([0, 0, 100, 100], 0.6),   # weak detection: skipped
+             _face([0, 0, 30, 30], 0.9),     # tiny: skipped
+             _face([0, 0, 100, 100], 0.9),   # flat neighbours: unidentified
+             _face([0, 0, 100, 100], 0.9)]   # duplicate photo of the same student is not a rival
+    galleries = iter([
+        [_cand("a", 0.60, "s1"), _cand("b", 0.50, "s2")],
+        [_cand("c", 0.52, "s3"), _cand("d", 0.50, "s4")],
+        [_cand("e", 0.60, "s5"), _cand("e2", 0.59, "s5"), _cand("f", 0.40, "s6")],
+    ])
+    monkeypatch.setattr(emb, "embed_frame", lambda frame, model=None: faces)
+    monkeypatch.setattr(gal, "search", lambda *a, **k: next(galleries))
+
+    hits = match_frame(np.zeros((200, 200, 3), np.uint8), 80, 0.5, 0.4, "m", min_det_score=0.7, min_margin=0.05)
+    assert [h.drive_file_id for h in hits] == ["a", None, "e"]
+    assert [round(h.similarity, 2) for h in hits] == [0.60, 0.52, 0.60]
 
 
 def test_sweep_orphans_removes_only_old(tmp_path):

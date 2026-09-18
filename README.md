@@ -262,6 +262,14 @@ Hard rules — these are design invariants, not defaults:
   are only counted.
 - Every upload, result view and evidence view is audited.
 
+False-positive gates (CCTV is far from passport conditions, and a noisy
+embedding always finds *some* neighbour in a 30k-photo gallery): faces under
+`VIDEO_MIN_FACE_PX` or below `VIDEO_MIN_DET_SCORE` are skipped; a face whose
+top-1 does not beat the next student by `VIDEO_MIN_MARGIN` counts as
+unidentified; and a student seen in only one sampled frame is capped at
+**REVIEW**, never **MATCH**. Overhead cameras that see the tops of heads will
+still not match reliably — the model wants roughly frontal faces.
+
 Accepted inputs are decided by content, not extension: anything OpenCV's
 bundled ffmpeg decodes (MP4/MOV with H.264/H.265, AVI, MKV, WebM, MPEG-TS,
 3GP, WMV, FLV). Vendor-native containers (`.dav`, raw `.h264`) are rejected
@@ -320,7 +328,9 @@ All configuration lives in `.env` (local) or service environment variables (Rend
 | `VITE_CLERK_PUBLISHABLE_KEY` | *(empty = auth off)* | Clerk publishable key, baked into the UI build; shows the Google sign-in gate |
 | `ALLOWED_EMAIL_DOMAIN` | `miva.university` | Server-side email-domain check on every request |
 | `VIDEO_SAMPLE_FPS` | `2` | Frames analysed per second of video |
-| `VIDEO_MIN_FACE_PX` | `40` | Skip detections smaller than this (short side of bbox) |
+| `VIDEO_MIN_FACE_PX` | `80` | Skip detections smaller than this (short side of bbox) |
+| `VIDEO_MIN_DET_SCORE` | `0.7` | Skip weak detections (tops of heads, blobs); enrolled passports peak near 0.95 |
+| `VIDEO_MIN_MARGIN` | `0.05` | Top-1 must beat the best *other* student by this much, else the face counts as unidentified |
 | `VIDEO_MAX_UPLOAD_MB` | `500` | Reject larger uploads with 413 |
 | `VIDEO_MAX_DURATION_S` | `900` | Reject longer clips |
 | `VIDEO_UPLOAD_DIR` | `/data/video-uploads` | Shared volume for uploads (api writes, worker-video reads and deletes) |

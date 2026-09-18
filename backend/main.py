@@ -620,11 +620,15 @@ def video_results(request: Request, job_id: uuid.UUID) -> VideoResults:
     job = _video_job(str(job_id))
     match_t = job.match_threshold or settings.match_threshold
     review_t = job.review_threshold or settings.review_threshold
-    sightings = [
-        VideoSighting(**r, confidence_pct=scoring.confidence_pct(r["best_similarity"]),
-                      verdict=gallery.verdict(r["best_similarity"], match_t, review_t))
-        for r in video_store.results(str(job_id))
-    ]
+    sightings = []
+    for r in video_store.results(str(job_id)):
+        verdict = gallery.verdict(r["best_similarity"], match_t, review_t)
+        # ponytail: a single sampled frame is never a MATCH. A person in view is
+        # seen across several frames; one hit is the signature of a false positive.
+        if verdict == "MATCH" and r["frames_seen"] < 2:
+            verdict = "REVIEW"
+        sightings.append(VideoSighting(**r, confidence_pct=scoring.confidence_pct(r["best_similarity"]),
+                                       verdict=verdict))
     audit.record(actor_of(request), "video_results", target=str(job_id), details={"students": len(sightings)})
     return VideoResults(job=job, sightings=sightings)
 

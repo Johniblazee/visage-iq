@@ -229,7 +229,11 @@ function SightingModal({ jobId, g, onClose }: { jobId: string; g: VideoSighting;
               <ScoreBar value={g.confidence_pct} kind={kind} />
               <div className="muted">
                 cosine {g.best_similarity.toFixed(3)} ·{" "}
-                {kind === "match" ? "above the match threshold" : "in the review band — a human decision is required"}
+                {kind === "match"
+                  ? "above the match threshold"
+                  : g.frames_seen === 1
+                    ? "seen in a single frame — a human decision is required"
+                    : "in the review band — a human decision is required"}
               </div>
               <div className="row" style={{ gap: "var(--s-2)" }}>
                 <span className="tag">first {stamp(g.first_ts)}</span>

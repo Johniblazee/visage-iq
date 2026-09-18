@@ -65,7 +65,12 @@ class Settings(BaseSettings):
 
     # --- video match (uploaded clips) ---
     video_sample_fps: float = 2.0        # frames analysed per second of video
-    video_min_face_px: int = 40          # skip detections whose bbox short side is smaller
+    # False-positive gates. A 40 px face is upscaled 3x into the 112 px recognizer;
+    # tops of heads detect near the 0.5 floor; a junk embedding sits equally far
+    # from everyone, so its top-2 is nearly as close as its top-1.
+    video_min_face_px: int = 80          # skip detections whose bbox short side is smaller
+    video_min_det_score: float = 0.7     # skip weak detections (passports peak ~0.95)
+    video_min_margin: float = 0.05       # top-1 must beat the best *other* student by this much
     video_max_upload_mb: int = 500
     video_max_duration_s: int = 900
     # Shared volume: the api writes uploads here, worker-video reads and deletes them.
