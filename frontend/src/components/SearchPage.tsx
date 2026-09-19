@@ -10,23 +10,35 @@ import {
   type StudentPage,
   type StudentRow,
 } from "../api";
-import { Button, Icon, Panel, ScoreBar, SEARCH_LOADER_MSGS, Verdict, verdictOf, VqLoader } from "../ds";
+import { Button, Icon, Panel, ScoreBar, SEARCH_LOADER_MSGS, Verdict, verdictOf, VqLoader, type VerdictKind } from "../ds";
 import { cosinePct, formatNumber } from "../format";
 
 const FETCH_TOP_K = 20;
 
-function CandidateModal({
+// Also opened from Video match (the enrolled / closest passport of a sighting).
+export function CandidateModal({
   candidate,
   rank,
+  eyebrow,
   cfg,
+  verdict,
   onClose,
 }: {
   candidate: Candidate;
-  rank: number;
-  cfg: Cfg;
+  rank?: number;
+  eyebrow?: string; // defaults to "Candidate #rank"
+  cfg?: Cfg; // thresholds to judge the similarity by…
+  verdict?: VerdictKind; // …unless the caller has already decided
   onClose: () => void;
 }) {
+  const closeRef = useRef<HTMLButtonElement | null>(null);
   const [student, setStudent] = useState<StudentRow | null>(null);
+  // Take focus on open, hand it back on close.
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    return () => prev?.focus();
+  }, []);
   const sid = candidate.student?.student_id ?? null;
   // The match payload carries only a few student fields; pull the full record.
   useEffect(() => {
@@ -50,7 +62,7 @@ function CandidateModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const kind = verdictOf(candidate.similarity, cfg.match, cfg.review);
+  const kind = verdict ?? (cfg ? verdictOf(candidate.similarity, cfg.match, cfg.review) : "no");
   const pct = cosinePct(candidate.similarity);
   const name = candidate.student?.full_name ?? candidate.title;
   const rows: [string, string | null | undefined][] = [
@@ -68,10 +80,10 @@ function CandidateModal({
       <div className="modal" role="dialog" aria-modal="true" aria-label={name}>
         <header className="card-head">
           <div>
-            <div className="eyebrow">Candidate #{rank}</div>
+            <div className="eyebrow">{eyebrow ?? `Candidate #${rank}`}</div>
             <h3 style={{ marginTop: 2 }}>{name}</h3>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
+          <button className="icon-btn" ref={closeRef} onClick={onClose} aria-label="Close">
             <Icon name="x" size={16} />
           </button>
         </header>

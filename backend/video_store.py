@@ -54,15 +54,17 @@ def write_results(job_id: str, sampled_frames: int, faces_seen: int, unknown_fac
     with pool.connection() as conn, conn.cursor() as cur:
         cur.executemany(
             """INSERT INTO video_sightings (job_id, drive_file_id, best_similarity, best_ts, first_ts,
-                                            last_ts, frames_seen, timestamps, frame_jpeg, crop_jpeg)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                            last_ts, frames_seen, timestamps, frame_jpeg, crop_jpeg,
+                                            det_score, face_px)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (job_id, drive_file_id) DO UPDATE SET
                    best_similarity = EXCLUDED.best_similarity, best_ts = EXCLUDED.best_ts,
                    first_ts = EXCLUDED.first_ts, last_ts = EXCLUDED.last_ts,
                    frames_seen = EXCLUDED.frames_seen, timestamps = EXCLUDED.timestamps,
-                   frame_jpeg = EXCLUDED.frame_jpeg, crop_jpeg = EXCLUDED.crop_jpeg""",
+                   frame_jpeg = EXCLUDED.frame_jpeg, crop_jpeg = EXCLUDED.crop_jpeg,
+                   det_score = EXCLUDED.det_score, face_px = EXCLUDED.face_px""",
             [(jid, s.drive_file_id, s.best_similarity, s.best_ts, s.first_ts, s.last_ts,
-              s.frames_seen, s.timestamps, s.frame_jpeg, s.crop_jpeg) for s in sightings],
+              s.frames_seen, s.timestamps, s.frame_jpeg, s.crop_jpeg, s.det_score, s.face_px) for s in sightings],
         )
         cur.execute("DELETE FROM video_unknowns WHERE job_id = %s", (jid,))  # a re-run replaces them
         cur.executemany(
@@ -100,7 +102,7 @@ def results(job_id: str) -> list[dict[str, Any]]:
         cur.execute(
             """SELECT v.drive_file_id, p.drive_file_name, v.best_similarity, v.best_ts, v.first_ts,
                       v.last_ts, v.frames_seen, v.timestamps,
-                      s.full_name, s.student_id, s.location, s.programme
+                      s.full_name, s.student_id, s.location, s.programme, v.det_score, v.face_px
                FROM video_sightings v
                LEFT JOIN persons p ON p.drive_file_id = v.drive_file_id
                LEFT JOIN LATERAL (SELECT full_name, student_id, location, programme FROM students st
@@ -113,7 +115,8 @@ def results(job_id: str) -> list[dict[str, Any]]:
         {"drive_file_id": r[0], "title": r[1], "best_similarity": float(r[2]), "best_ts": float(r[3]),
          "first_ts": float(r[4]), "last_ts": float(r[5]), "frames_seen": r[6],
          "timestamps": [float(t) for t in r[7]],
-         "student": {"full_name": r[8], "student_id": r[9], "location": r[10], "programme": r[11]} if r[8] else None}
+         "student": {"full_name": r[8], "student_id": r[9], "location": r[10], "programme": r[11]} if r[8] else None,
+         "det_score": float(r[12]) if r[12] is not None else None, "face_px": r[13]}   # null on jobs from before
         for r in rows
     ]
 

@@ -222,6 +222,9 @@ class VideoSighting(BaseModel):
     last_ts: float
     frames_seen: int
     timestamps: list[float]
+    det_score: float | None = None      # of the boxed face in the evidence frame
+    det_pct: float | None = None        # same 0-100 detection quality Face search shows
+    face_px: int | None = None
 
 
 class VideoNear(BaseModel):
@@ -236,6 +239,7 @@ class VideoUnknown(BaseModel):
     scored: bool                # false = too unreliable a view to compare; no score or nearest photo is given
     face_px: int
     det_score: float
+    det_pct: float
     best_similarity: float | None = None
     confidence_pct: float | None = None
     near: VideoNear | None = None

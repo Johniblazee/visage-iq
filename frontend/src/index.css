@@ -1397,6 +1397,21 @@ td:first-child {
 }
 
 /* ── video match (design: Video match.html) ──────────────── */
+/* the passport block in the sighting modal opens Face search's candidate modal */
+.open-cand {
+  cursor: pointer;
+  margin: -6px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.open-cand:hover {
+  background: var(--surface-2);
+}
+.open-cand:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 .vtabs {
   display: flex;
   gap: var(--s-5);

@@ -629,8 +629,10 @@ def video_results(request: Request, job_id: uuid.UUID) -> VideoResults:
         if verdict == "MATCH" and r["frames_seen"] < 2:
             verdict = "REVIEW"
         sightings.append(VideoSighting(**r, confidence_pct=scoring.confidence_pct(r["best_similarity"]),
-                                       verdict=verdict))
-    unknowns = [VideoUnknown(**u, confidence_pct=scoring.confidence_pct(u["best_similarity"]) if u["scored"] else None)
+                                       verdict=verdict,
+                                       det_pct=scoring.det_pct(r["det_score"]) if r["det_score"] is not None else None))
+    unknowns = [VideoUnknown(**u, det_pct=scoring.det_pct(u["det_score"]),
+                             confidence_pct=scoring.confidence_pct(u["best_similarity"]) if u["scored"] else None)
                 for u in video_store.unknowns(str(job_id))]
     audit.record(actor_of(request), "video_results", target=str(job_id),
                  details={"students": len(sightings), "unknowns": len(unknowns)})

@@ -1,7 +1,16 @@
 /* Video match — attendance roll from a short clip (design: "Video match.html").
    No player anywhere: the clip is deleted after processing; timestamps are for
    the operator's own copy. */
-import { Fragment, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type SyntheticEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type SyntheticEvent,
+} from "react";
 import {
   apiBlob,
   apiRequest,
@@ -16,6 +25,7 @@ import {
   type VideoUnknown,
 } from "../api";
 import { Button, Icon, Panel, ScoreBar, Verdict, toast, type VerdictKind } from "../ds";
+import { CandidateModal } from "./SearchPage";
 import { formatNumber, relativeTime } from "../format";
 
 type Kind = VerdictKind;
@@ -201,6 +211,7 @@ function SightingModal({
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [student, setStudent] = useState<StudentRow | null>(null);
+  const [passport, setPassport] = useState(false); // Face search's candidate modal, stacked on top
   const unk = "idx" in g ? g : null;
   const known = "idx" in g ? null : g;
   const sid = known?.student?.student_id ?? null;
@@ -224,10 +235,10 @@ function SightingModal({
     ref.current?.querySelector<HTMLElement>('button,[href],input,select,[tabindex]:not([tabindex="-1"])')?.focus();
     return () => prev?.focus();
   }, []);
-  // Focus trap + Esc, as in the design.
+  // Focus trap + Esc, as in the design — handed over while the passport modal is on top.
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || passport) return;
     const focusables = () =>
       [...el.querySelectorAll<HTMLElement>('button,[href],input,select,[tabindex]:not([tabindex="-1"])')].filter(
         (n) => !(n as HTMLButtonElement).disabled,
@@ -249,7 +260,7 @@ function SightingModal({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, passport]);
 
   const kind: Kind = known ? kindOf(known.verdict) : "no";
   const title = unk ? unkName(unk) : nameOf(known!);
@@ -262,6 +273,31 @@ function SightingModal({
   // its nearest neighbour is noise, and "75%" beside "No match" would mislead.
   const scored = g.confidence_pct != null && g.best_similarity != null;
   const pct = g.confidence_pct ?? 0;
+  // The enrolled photo this block is about, in the shape Face search's candidate modal takes.
+  const candidate =
+    scored && thumbId
+      ? {
+          drive_file_id: thumbId,
+          title: (unk ? unk.near?.title : known!.title) ?? "",
+          similarity: g.best_similarity ?? 0,
+          student: unk ? unk.near?.student : known!.student,
+        }
+      : null;
+  const openPassport = candidate
+    ? {
+        className: "row open-cand",
+        role: "button",
+        tabIndex: 0,
+        title: "Open the enrolled photo and student record",
+        onClick: () => setPassport(true),
+        onKeyDown: (e: ReactKeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setPassport(true);
+          }
+        },
+      }
+    : { className: "row" };
   const s = known?.student;
   const rows: [string, string | null | undefined][] = [
     ["Student ID", sid],
@@ -291,9 +327,21 @@ function SightingModal({
                 <img src={apiUrl(frameSrc)} alt="" onError={hide} />
               </div>
               <div className="muted">Best frame at {stamp(g.best_ts)} · face box drawn by the detector</div>
+              {g.det_pct != null && (
+                <dl className="kv">
+                  <dt>Detection</dt>
+                  <dd>{g.det_pct.toFixed(0)}%</dd>
+                  {g.face_px ? (
+                    <>
+                      <dt>Face box</dt>
+                      <dd>{g.face_px} px</dd>
+                    </>
+                  ) : null}
+                </dl>
+              )}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
-              <div className="row" style={{ alignItems: "center", gap: "var(--s-4)", flexWrap: "nowrap" }}>
+              <div {...openPassport} style={{ alignItems: "center", gap: "var(--s-4)", flexWrap: "nowrap" }}>
                 <div
                   style={{
                     width: 56,
@@ -414,6 +462,17 @@ function SightingModal({
           </div>
         </div>
       </div>
+      {passport && candidate && (
+        // Own stacking context, so its scrim covers the sighting modal underneath.
+        <div style={{ position: "relative", zIndex: 50 }}>
+          <CandidateModal
+            candidate={candidate}
+            eyebrow={unk ? "Closest enrolled face" : "Enrolled passport"}
+            verdict={kind}
+            onClose={() => setPassport(false)}
+          />
+        </div>
+      )}
     </>
   );
 }

@@ -226,6 +226,8 @@ export interface VideoSighting {
   last_ts: number;
   frames_seen: number;
   timestamps: number[];
+  det_pct?: number | null; // detection quality of the boxed face, as on Face search (null on older jobs)
+  face_px?: number | null;
 }
 
 // A face the job found but kept off the roll, grouped per person across frames.
@@ -235,6 +237,7 @@ export interface VideoUnknown {
   scored: boolean; // false = too unreliable a view to compare: the API gives no score and no nearest photo
   face_px: number;
   det_score: number;
+  det_pct: number;
   best_similarity: number | null;
   confidence_pct: number | null;
   near?: { drive_file_id: string; title?: string | null; student?: CandidateStudent | null } | null;

@@ -139,6 +139,8 @@ class Sighting:
     timestamps: list[float] = field(default_factory=list)
     frame_jpeg: bytes = b""
     crop_jpeg: bytes = b""
+    det_score: float = 0.0      # of the face in the evidence frame (the one with the box)
+    face_px: int = 0
 
 
 @dataclass
@@ -182,6 +184,7 @@ class Aggregator:
                 drive_file_id=hit.drive_file_id, best_similarity=hit.similarity, best_ts=ts,
                 first_ts=ts, last_ts=ts, frames_seen=1, timestamps=[ts],
                 frame_jpeg=frame_jpeg, crop_jpeg=crop_jpeg,
+                det_score=hit.det_score, face_px=_short_side(hit.bbox),
             )
             return
         # frames_seen counts frames, not faces: a second face in the same frame
@@ -192,6 +195,7 @@ class Aggregator:
             s.first_ts, s.last_ts = min(s.first_ts, ts), max(s.last_ts, ts)
         if hit.similarity > s.best_similarity:
             s.best_similarity, s.best_ts = hit.similarity, ts
+            s.det_score, s.face_px = hit.det_score, _short_side(hit.bbox)
             s.frame_jpeg, s.crop_jpeg = encode_evidence(frame, hit.bbox)
 
     def sightings(self) -> list[Sighting]:

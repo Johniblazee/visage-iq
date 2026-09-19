@@ -142,6 +142,9 @@ CREATE TABLE IF NOT EXISTS video_sightings (
     crop_jpeg        BYTEA NOT NULL,
     PRIMARY KEY (job_id, drive_file_id)
 );
+-- Detector quality and size of the face in the evidence frame (null on older jobs).
+ALTER TABLE video_sightings ADD COLUMN IF NOT EXISTS det_score REAL;
+ALTER TABLE video_sightings ADD COLUMN IF NOT EXISTS face_px INTEGER;
 -- Faces the video job found but kept off the roll, grouped per person in the
 -- worker's memory. Evidence only: no embedding is ever stored here.
 CREATE TABLE IF NOT EXISTS video_unknowns (

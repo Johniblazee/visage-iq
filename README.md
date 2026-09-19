@@ -461,7 +461,7 @@ requirements.txt
 | `POST` | `/video` | Upload a clip (multipart `file`, ≤ `VIDEO_MAX_UPLOAD_MB`, ≤ `VIDEO_MAX_DURATION_S`); probed by content, queued on the `video` RQ queue → `{job_id}`. Rate-limited per IP by `VIDEO_RATE_LIMIT`. |
 | `GET` | `/video` | Recent video jobs (last 50), each with its `students` count |
 | `GET` | `/video/{job_id}` | Job status + live `progress` (`phase`/`current`/`total`/`faces_seen`); a job whose worker died is reconciled to `failed` on read |
-| `GET` | `/video/{job_id}/results` | The roll: per matched student `confidence_pct`, `verdict`, all `timestamps`, `first_ts`/`last_ts`/`best_ts`, `frames_seen`; plus `unknowns` — unidentified faces with `reason`, `scored`, `face_px` and the same timestamps; `near`, `best_similarity` and `confidence_pct` are given only when `scored` |
+| `GET` | `/video/{job_id}/results` | The roll: per matched student `confidence_pct`, `verdict`, all `timestamps`, `first_ts`/`last_ts`/`best_ts`, `frames_seen`, and `det_pct`/`face_px` of the boxed face; plus `unknowns` — unidentified faces with `reason`, `scored`, `face_px` and the same timestamps; `near`, `best_similarity` and `confidence_pct` are given only when `scored` |
 | `GET` | `/video/{job_id}/frame/{file_id}` · `/crop/{file_id}` | Evidence JPEGs (best full frame with the face box; face crop) |
 | `GET` | `/video/{job_id}/unknown/{idx}/frame` · `/crop` | The same evidence for an unidentified face |
 | `DELETE` | `/video/{job_id}` | Remove a job and its evidence |

@@ -47,6 +47,7 @@ def test_aggregator_keeps_best_evidence_and_all_timestamps():
     agg.add(3.0, _hit("B", 0.48), frame)
     s = {x.drive_file_id: x for x in agg.sightings()}
     assert s["A"].best_similarity == 0.62 and s["A"].best_ts == 1.5
+    assert (s["A"].det_score, s["A"].face_px) == (0.9, 80)          # of the boxed face in the evidence
     assert s["A"].frame_jpeg == encode_evidence(frame2, bbox)[0]   # evidence from the best hit
     assert s["A"].frame_jpeg != encode_evidence(frame, bbox)[0]
     assert s["A"].first_ts == 1.0 and s["A"].last_ts == 2.0
