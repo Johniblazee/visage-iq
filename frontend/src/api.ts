@@ -197,6 +197,7 @@ export interface VideoJob {
   sampled_frames: number;
   faces_seen: number;
   unknown_faces: number;
+  students: number;
   match_threshold?: number | null;
   review_threshold?: number | null;
   created_at?: string | null;

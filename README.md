@@ -452,7 +452,7 @@ requirements.txt
 | `POST` | `/worker/resume` | Clear the suspension flag |
 | `GET` | `/image/{file_id}` | Drive-image proxy (Redis-cached) for thumbnails |
 | `POST` | `/video` | Upload a clip (multipart `file`, ≤ `VIDEO_MAX_UPLOAD_MB`, ≤ `VIDEO_MAX_DURATION_S`); probed by content, queued on the `video` RQ queue → `{job_id}`. Rate-limited per IP by `VIDEO_RATE_LIMIT`. |
-| `GET` | `/video` | Recent video jobs (last 50) |
+| `GET` | `/video` | Recent video jobs (last 50), each with its `students` count |
 | `GET` | `/video/{job_id}` | Job status + live `progress` (`phase`/`current`/`total`/`faces_seen`); a job whose worker died is reconciled to `failed` on read |
 | `GET` | `/video/{job_id}/results` | The roll: per matched student `confidence_pct`, `verdict`, all `timestamps`, `first_ts`/`last_ts`/`best_ts`, `frames_seen` |
 | `GET` | `/video/{job_id}/frame/{file_id}` · `/crop/{file_id}` | Evidence JPEGs (best full frame with the face box; face crop) |

@@ -201,6 +201,7 @@ class VideoJob(BaseModel):
     sampled_frames: int = 0
     faces_seen: int = 0
     unknown_faces: int = 0
+    students: int = 0
     match_threshold: float | None = None
     review_threshold: float | None = None
     created_at: str | None = None

@@ -349,56 +349,22 @@ function JobCard({
 
 function RecentVideos({ rows, onOpen, onDelete }: { rows: VideoJob[]; onOpen: (j: VideoJob) => void; onDelete: (ids: string[]) => void }) {
   const [q, setQ] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirm, setConfirm] = useState<string | null>(null); // a job id, or "*" for the selection
+  const [picked, setPicked] = useState<string[]>([]);
+  const [bulk, setBulk] = useState(false);
+  const [confirm, setConfirm] = useState<string | null>(null);
   const badge = (j: VideoJob) => (j.status === "done" ? "match" : j.status === "failed" ? "no" : "review");
-  const visible = rows.filter((j) => j.filename.toLowerCase().includes(q.trim().toLowerCase()));
-  const chosen = visible.filter((j) => selected.has(j.id)); // ids that vanished on refresh drop out here
-  const allVisible = visible.length > 0 && chosen.length === visible.length;
-  const toggle = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const del = (ids: string[]) => {
-    setConfirm(null);
-    setSelected(new Set());
-    onDelete(ids);
+  const t = q.trim().toLowerCase();
+  const hit = rows.filter((j) => !t || j.filename.toLowerCase().includes(t) || j.status.includes(t));
+  const chosen = rows.filter((j) => picked.includes(j.id)); // ids that vanished on refresh drop out here
+  const allOn = hit.length > 0 && hit.every((j) => picked.includes(j.id));
+  // Changing the selection cancels a pending bulk confirmation.
+  const pick = (next: string[]) => {
+    setBulk(false);
+    setPicked(next);
   };
-  const confirmRow = (ids: string[], what: string) => (
-    <div className="row" style={{ gap: "var(--s-2)", flexWrap: "nowrap" }}>
-      <span className="muted" style={{ maxWidth: "28ch" }}>
-        Delete results for {what}? The clip{ids.length > 1 ? "s were" : " was"} already removed.
-      </span>
-      <Button kind="primary" size="sm" onClick={() => del(ids)}>
-        Delete
-      </Button>
-      <Button kind="ghost" size="sm" onClick={() => setConfirm(null)}>
-        Keep
-      </Button>
-    </div>
-  );
+  const toggle = (id: string) => pick(picked.includes(id) ? picked.filter((x) => x !== id) : picked.concat(id));
   return (
-    <Panel
-      title="Recent videos"
-      meta={rows.length ? `${rows.length} processed` : undefined}
-      pad={false}
-      action={
-        rows.length > 0 && (
-          <div className="searchbar" style={{ height: 40, width: "min(320px, 100%)" }}>
-            <Icon name="search" size={16} color="var(--txt-3)" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by file name" aria-label="Filter videos" />
-            {q && (
-              <button className="icon-btn" onClick={() => setQ("")} aria-label="Clear filter">
-                <Icon name="x" size={14} />
-              </button>
-            )}
-          </div>
-        )
-      }
-    >
+    <Panel title="Recent videos" meta={rows.length ? `${rows.length} processed` : undefined} pad={false}>
       <div className="card-pad">
         {!rows.length ? (
           <div className="empty">
@@ -408,56 +374,125 @@ function RecentVideos({ rows, onOpen, onDelete }: { rows: VideoJob[]; onOpen: (j
             </div>
           </div>
         ) : (
-          <div className="vid-list">
-            <div className="vid-row">
+          <>
+            <div className="searchbar" style={{ height: 44, marginBottom: "var(--s-4)" }}>
+              <Icon name="search" size={16} color="var(--txt-3)" />
               <input
-                type="checkbox"
-                checked={allVisible}
-                disabled={!visible.length}
-                onChange={(e) => setSelected(e.target.checked ? new Set(visible.map((j) => j.id)) : new Set())}
-                aria-label="Select all"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search a video analysis by filename or status"
+                aria-label="Search recent videos"
               />
-              {confirm === "*" ? (
-                confirmRow(chosen.map((j) => j.id), `${chosen.length} videos`)
-              ) : chosen.length ? (
-                <>
-                  <span className="muted">{chosen.length} selected</span>
-                  <Button kind="ghost" size="sm" onClick={() => setConfirm("*")}>
-                    <Icon name="trash" size={14} /> Delete selected
-                  </Button>
-                  <Button kind="ghost" size="sm" onClick={() => setSelected(new Set())}>
-                    Clear
-                  </Button>
-                </>
-              ) : (
-                <span className="muted">{q ? `${visible.length} of ${rows.length}` : "Select all"}</span>
+              {q && (
+                <button
+                  className="icon-btn"
+                  style={{ width: 26, height: 26, border: 0, background: "none" }}
+                  aria-label="Clear search"
+                  onClick={() => setQ("")}
+                >
+                  <Icon name="x" size={14} />
+                </button>
               )}
             </div>
-            {!visible.length && <div className="muted" style={{ padding: "var(--s-3) 0" }}>No videos match “{q}”.</div>}
-            {visible.map((j) => (
-              <div key={j.id} className="vid-row">
-                <input type="checkbox" checked={selected.has(j.id)} onChange={() => toggle(j.id)} aria-label={"Select " + j.filename} />
-                <button className="vid-name" onClick={() => onOpen(j)}>
-                  <b>{j.filename}</b>
-                  <span className="muted">
-                    {relativeTime(j.created_at)}
-                    {j.duration_s ? ` · ${clock(j.duration_s)}` : ""}
-                  </span>
-                </button>
-                <span className={"verdict " + badge(j)}>{j.status}</span>
-                <span className="muted" style={{ maxWidth: "34ch", textAlign: "right" }}>
-                  {j.status === "failed" ? j.error : j.status === "done" ? `${j.faces_seen} faces seen` : ""}
+            <div className="vid-row" style={{ borderTop: 0, paddingTop: 0 }}>
+              <label className="row" style={{ gap: "var(--s-3)", flex: 1, minWidth: 0, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={allOn}
+                  disabled={!hit.length}
+                  onChange={() => pick(allOn ? [] : hit.map((j) => j.id))}
+                  aria-label="Select all shown videos"
+                />
+                <span className="muted">
+                  {chosen.length ? `${chosen.length} selected` : `${hit.length} of ${rows.length} shown`}
                 </span>
-                {confirm === j.id ? (
-                  confirmRow([j.id], "this video")
+              </label>
+              {chosen.length > 0 &&
+                (bulk ? (
+                  <div className="row" style={{ gap: "var(--s-2)", flexWrap: "nowrap" }}>
+                    <span className="muted" style={{ maxWidth: "34ch" }}>
+                      Delete results for {chosen.length} video{chosen.length > 1 ? "s" : ""}? The clips themselves were
+                      already removed.
+                    </span>
+                    <Button
+                      kind="primary"
+                      size="sm"
+                      onClick={() => {
+                        onDelete(chosen.map((j) => j.id));
+                        pick([]);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                    <Button kind="ghost" size="sm" onClick={() => setBulk(false)}>
+                      Keep
+                    </Button>
+                  </div>
                 ) : (
-                  <button className="icon-btn" aria-label={"Delete results for " + j.filename} onClick={() => setConfirm(j.id)}>
-                    <Icon name="trash" size={15} />
-                  </button>
-                )}
+                  <div className="row" style={{ gap: "var(--s-2)", flexWrap: "nowrap" }}>
+                    <Button kind="ghost" size="sm" iconLeft={<Icon name="trash" size={15} />} onClick={() => setBulk(true)}>
+                      Delete results
+                    </Button>
+                    <Button kind="text" size="sm" onClick={() => pick([])}>
+                      Clear
+                    </Button>
+                  </div>
+                ))}
+            </div>
+            {!hit.length ? (
+              <div className="empty" style={{ padding: "40px var(--s-6)" }}>
+                <div className="muted">No video matches “{q}”.</div>
               </div>
-            ))}
-          </div>
+            ) : (
+              <div className="vid-list">
+                {hit.map((j) => (
+                  <div key={j.id} className="vid-row">
+                    <input type="checkbox" checked={picked.includes(j.id)} onChange={() => toggle(j.id)} aria-label={"Select " + j.filename} />
+                    <button className="vid-name" onClick={() => onOpen(j)}>
+                      <b>{j.filename}</b>
+                      <span className="muted">
+                        {relativeTime(j.created_at)}
+                        {j.duration_s ? ` · ${clock(j.duration_s)}` : ""}
+                      </span>
+                    </button>
+                    <span className={"verdict " + badge(j)}>{j.status}</span>
+                    <span className="muted" style={{ maxWidth: "34ch", textAlign: "right" }}>
+                      {j.status === "failed"
+                        ? j.error
+                        : j.status === "done"
+                          ? `${formatNumber(j.students)} student${j.students === 1 ? "" : "s"}`
+                          : ""}
+                    </span>
+                    {confirm === j.id ? (
+                      <div className="row" style={{ gap: "var(--s-2)", flexWrap: "nowrap" }}>
+                        <span className="muted" style={{ maxWidth: "24ch" }}>
+                          Delete this video's results? The clip itself was already removed.
+                        </span>
+                        <Button
+                          kind="primary"
+                          size="sm"
+                          onClick={() => {
+                            setConfirm(null);
+                            pick(picked.filter((x) => x !== j.id));
+                            onDelete([j.id]);
+                          }}
+                        >
+                          Delete
+                        </Button>
+                        <Button kind="ghost" size="sm" onClick={() => setConfirm(null)}>
+                          Keep
+                        </Button>
+                      </div>
+                    ) : (
+                      <button className="icon-btn" aria-label={"Delete results for " + j.filename} onClick={() => setConfirm(j.id)}>
+                        <Icon name="trash" size={15} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </Panel>
@@ -593,7 +628,7 @@ export default function VideoPage() {
     if (failed.length) {
       toast("error", `Couldn't delete ${failed.length} of ${ids.length}`, errorMessage(failed[0].reason));
     } else {
-      toast("ok", ids.length === 1 ? "Results deleted" : `${ids.length} results deleted`);
+      toast("ok", ids.length === 1 ? "Results deleted" : `Results deleted for ${ids.length} videos`);
     }
     if (active && ids.includes(active.id)) select(null);
     loadJobs();
@@ -727,8 +762,8 @@ export default function VideoPage() {
                   No enrolled students identified · {formatNumber(results.job.faces_seen)} faces seen
                 </div>
                 <div className="muted" style={{ maxWidth: "52ch" }}>
-                  Faces smaller than about 40 px, or turned away from the camera, are skipped. A closer or better-lit
-                  export usually returns a roll.
+                  Faces smaller than about 80 px, turned away from the camera, or only weakly detected are skipped. A
+                  closer or better-lit export usually returns a roll.
                 </div>
                 <Button kind="primary" size="sm" iconLeft={<Icon name="upload" size={16} />} onClick={() => fileRef.current?.click()}>
                   Upload another clip

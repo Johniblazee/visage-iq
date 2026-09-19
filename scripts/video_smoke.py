@@ -52,6 +52,9 @@ def main() -> int:
               hit and {k: hit[k] for k in ("best_similarity", "frames_seen", "first_ts", "last_ts")})
         ok = hit is not None and hit["frames_seen"] >= summary["sampled_frames"] - 2 and not os.path.exists(path)
         ok = ok and all(video_store.evidence(job_id, fid, k)[:2] == b"\xff\xd8" for k in ("frame", "crop"))
+        # the count the Recent videos list shows, on both read paths
+        ok = ok and video_store.get_job(job_id)["students"] == len(rows) == 1
+        ok = ok and any(j["id"] == job_id and j["students"] == 1 for j in video_store.list_jobs())
     finally:
         video_store.delete_job(job_id)  # never leave a smoke row or its evidence behind
         try:

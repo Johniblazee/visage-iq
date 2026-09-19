@@ -1620,8 +1620,12 @@ td:first-child {
   border-top: 0;
 }
 .vid-row input[type="checkbox"] {
-  flex: none;
+  width: 16px;
+  height: 16px;
   margin: 0;
+  flex: none;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
 }
 .vid-name {
   flex: 1;

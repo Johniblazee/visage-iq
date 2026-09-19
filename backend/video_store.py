@@ -9,7 +9,9 @@ from backend.db import pool
 JOB_COLS = ("id, actor, filename, size_bytes, upload_path, status, error, detail, duration_s, fps, "
             "width, height, sampled_frames, faces_seen, unknown_faces, match_threshold, "
             "review_threshold, created_at, started_at, finished_at")
-_KEYS = [c.strip() for c in JOB_COLS.split(",")]
+# Reads also carry how many students the job put on the roll (Recent videos shows it).
+_READ_COLS = JOB_COLS + ", (SELECT count(*) FROM video_sightings vs WHERE vs.job_id = video_jobs.id)"
+_KEYS = [c.strip() for c in JOB_COLS.split(",")] + ["students"]
 
 
 def _job(r) -> dict[str, Any]:
@@ -71,14 +73,14 @@ def write_results(job_id: str, sampled_frames: int, faces_seen: int, unknown_fac
 
 def get_job(job_id: str) -> dict[str, Any] | None:
     with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(f"SELECT {JOB_COLS} FROM video_jobs WHERE id = %s", (uuid.UUID(job_id),))
+        cur.execute(f"SELECT {_READ_COLS} FROM video_jobs WHERE id = %s", (uuid.UUID(job_id),))
         r = cur.fetchone()
     return _job(r) if r else None
 
 
 def list_jobs(limit: int = 50) -> list[dict[str, Any]]:
     with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(f"SELECT {JOB_COLS} FROM video_jobs ORDER BY created_at DESC LIMIT %s", (limit,))
+        cur.execute(f"SELECT {_READ_COLS} FROM video_jobs ORDER BY created_at DESC LIMIT %s", (limit,))
         return [_job(r) for r in cur.fetchall()]
 
 
