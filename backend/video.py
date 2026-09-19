@@ -18,8 +18,11 @@ logger = logging.getLogger(__name__)
 FRAME_MAX_SIDE = 1280   # evidence frame, longest side
 CROP_SIDE = 256         # evidence face crop, longest side
 CROP_PAD = 0.30         # padding around the bbox as a fraction of its size
-BOX_BGR = (49, 59, 228)  # --miva-red
+BOX_BGR = (170, 218, 92)  # --miva-thrive #5CDAAA, the same green Face search draws its box in
 ORPHAN_MAX_AGE_S = 24 * 3600
+UNKNOWN_MERGE_T = 0.45  # cosine between two unidentified faces to treat them as the same person
+MAX_UNKNOWNS = 60       # unidentified faces kept with evidence per job; beyond that they are only counted
+DARK_LUMA = 60          # mean grey level of the face box below which low light is the likely cause
 
 
 class VideoError(Exception):
@@ -116,8 +119,13 @@ def encode_evidence(frame: np.ndarray, bbox: list[int]) -> tuple[bytes, bytes]:
 class Hit:
     bbox: list[int]
     det_score: float
-    drive_file_id: str | None      # None = no gallery match at or above the review floor
-    similarity: float
+    drive_file_id: str | None      # None = unidentified, see `reason`
+    similarity: float              # to the closest enrolled photo, identified or not
+    near_file_id: str | None = None        # that closest photo — shown beside an unidentified face
+    # Why it stayed off the roll. "low" = a clear face that is simply not close to anyone: its
+    # score is meaningful. small | weak | dark | ambiguous = the view was too unreliable to score.
+    reason: str = ""
+    embedding: np.ndarray | None = None    # groups unidentified faces in memory; never stored
 
 
 @dataclass
@@ -133,17 +141,39 @@ class Sighting:
     crop_jpeg: bytes = b""
 
 
+@dataclass
+class Unknown:
+    """One unidentified person: faces grouped across frames by embedding similarity."""
+    idx: int
+    reason: str
+    near_file_id: str | None
+    best_similarity: float
+    det_score: float
+    face_px: int
+    best_ts: float
+    first_ts: float
+    last_ts: float
+    frames_seen: int
+    timestamps: list[float] = field(default_factory=list)
+    frame_jpeg: bytes = b""
+    crop_jpeg: bytes = b""
+    emb_sum: np.ndarray | None = None      # sum of the group's unit embeddings; memory only
+
+
 class Aggregator:
-    """Per-enrolled-photo roll. Evidence is re-encoded only when the score
-    improves, so memory stays ~150 KB per student regardless of clip length."""
+    """Per-enrolled-photo roll, plus the unidentified faces grouped per person.
+    Evidence is re-encoded only when it improves, so memory stays ~150 KB per
+    student (or unidentified face) regardless of clip length."""
 
     def __init__(self) -> None:
         self._by_id: dict[str, Sighting] = {}
+        self._unknowns: list[Unknown] = []
         self.unknown_faces = 0
 
     def add(self, ts: float, hit: Hit, frame: np.ndarray) -> None:
         if hit.drive_file_id is None:
             self.unknown_faces += 1
+            self._add_unknown(ts, hit, frame)
             return
         s = self._by_id.get(hit.drive_file_id)
         if s is None:
@@ -166,6 +196,54 @@ class Aggregator:
 
     def sightings(self) -> list[Sighting]:
         return sorted(self._by_id.values(), key=lambda s: -s.best_similarity)
+
+    def _add_unknown(self, ts: float, hit: Hit, frame: np.ndarray) -> None:
+        if hit.embedding is None:
+            return
+        emb = hit.embedding
+
+        def cos(u: Unknown) -> float:
+            return float(u.emb_sum @ emb / np.linalg.norm(u.emb_sum))
+
+        u = max(self._unknowns, key=cos, default=None)
+        if u is None or cos(u) < UNKNOWN_MERGE_T:
+            # ponytail: first-come cap. A crowd clip keeps evidence for the first
+            # MAX_UNKNOWNS people; later ones are still counted in unknown_faces.
+            if len(self._unknowns) >= MAX_UNKNOWNS:
+                return
+            frame_jpeg, crop_jpeg = encode_evidence(frame, hit.bbox)
+            self._unknowns.append(Unknown(
+                idx=len(self._unknowns), reason=hit.reason, near_file_id=hit.near_file_id,
+                best_similarity=hit.similarity, det_score=hit.det_score, face_px=_short_side(hit.bbox),
+                best_ts=ts, first_ts=ts, last_ts=ts, frames_seen=1, timestamps=[ts],
+                frame_jpeg=frame_jpeg, crop_jpeg=crop_jpeg, emb_sum=emb.astype(np.float32).copy(),
+            ))
+            return
+        u.emb_sum = u.emb_sum + emb
+        if ts != u.timestamps[-1]:
+            u.frames_seen += 1
+            u.timestamps.append(ts)
+            u.last_ts = ts
+        if hit.similarity > u.best_similarity:
+            u.best_similarity, u.near_file_id = hit.similarity, hit.near_file_id
+        if hit.det_score > u.det_score:
+            # The clearest view becomes the evidence, and its reason explains the verdict:
+            # "even at its best, this face was small / turned away / not close to anyone".
+            u.det_score, u.face_px, u.reason, u.best_ts = hit.det_score, _short_side(hit.bbox), hit.reason, ts
+            u.frame_jpeg, u.crop_jpeg = encode_evidence(frame, hit.bbox)
+
+    def unknowns(self) -> list[Unknown]:
+        """Most-seen first, then clearest; idx is that rank (the UI numbers faces by it).
+        Not by score: for most of these faces the score is exactly what cannot be trusted."""
+        out = sorted(self._unknowns, key=lambda u: (-u.frames_seen, -u.det_score))
+        for i, u in enumerate(out):
+            u.idx = i
+        return out
+
+
+def _short_side(bbox: list[int]) -> int:
+    x1, y1, x2, y2 = bbox
+    return int(min(x2 - x1, y2 - y1))
 
 
 def sweep_orphans(upload_dir: str, max_age_s: int = ORPHAN_MAX_AGE_S) -> int:
@@ -190,26 +268,42 @@ def sweep_orphans(upload_dir: str, max_age_s: int = ORPHAN_MAX_AGE_S) -> int:
 
 def match_frame(frame: np.ndarray, min_face_px: int, match_t: float, review_t: float, model: str,
                 min_det_score: float = 0.0, min_margin: float = 0.0) -> list[Hit]:
-    """The shared per-frame core (live webcam in v2 feeds it too): detect,
-    drop tiny/weak faces, gallery search with a margin test, floor at the
-    review threshold. Read-only against the gallery."""
+    """The shared per-frame core (live webcam in v2 feeds it too): detect, search
+    the gallery, and decide per face whether it goes on the roll. A face that
+    does not is still returned — unidentified, with the reason and its closest
+    enrolled photo — so the operator can see what was found. Read-only against
+    the gallery."""
     from backend.embedding import embed_frame
     from backend.gallery import search
 
     hits: list[Hit] = []
     for face in embed_frame(frame, model=model):
-        x1, y1, x2, y2 = face.bbox
-        if min(x2 - x1, y2 - y1) < min_face_px or face.det_score < min_det_score:
-            continue
         # top-3 so one duplicate photo of the same student still leaves a rival to compare against
         cands = search(face, 3, model, match_t, review_t)
         top = cands[0] if cands else None
         rival = next((c for c in cands[1:] if not _same_student(c, top)), None)
-        identified = (top is not None and top.similarity >= review_t
-                      and (rival is None or top.similarity - rival.similarity >= min_margin))
-        hits.append(Hit(face.bbox, face.det_score, top.drive_file_id if identified else None,
-                        top.similarity if top else 0.0))
+        if _short_side(face.bbox) < min_face_px:
+            reason = "small"       # upscaled several times into the 112 px recognizer: the score is noise
+        elif face.det_score < min_det_score:
+            reason = "weak"        # tops of heads, turned-away or half-hidden faces
+        elif top is None or top.similarity < review_t:
+            reason = "low"
+        elif rival is not None and top.similarity - rival.similarity < min_margin:
+            reason = "ambiguous"   # a junk embedding sits equally far from everyone
+        else:
+            reason = ""
+        if reason == "weak" and _is_dark(frame, face.bbox):
+            reason = "dark"
+        hits.append(Hit(face.bbox, face.det_score, top.drive_file_id if top and not reason else None,
+                        top.similarity if top else 0.0, near_file_id=top.drive_file_id if top else None,
+                        reason=reason, embedding=face.embedding if reason else None))
     return hits
+
+
+def _is_dark(frame: np.ndarray, bbox: list[int]) -> bool:
+    x1, y1, x2, y2 = (max(0, v) for v in bbox)
+    box = frame[y1:y2, x1:x2]
+    return box.size > 0 and float(cv2.cvtColor(box, cv2.COLOR_BGR2GRAY).mean()) < DARK_LUMA
 
 
 def _same_student(a, b) -> bool:
@@ -260,12 +354,12 @@ def run_video_job(job_id: str) -> dict:
             if sampled % 25 == 0 or sampled == total:
                 _progress(job, "matching", sampled, total, faces_seen)
         _progress(job, "writing", sampled, total, faces_seen)
-        sightings = agg.sightings()
-        video_store.write_results(job_id, sampled, faces_seen, agg.unknown_faces, sightings)
-        logger.info("[video %s] done: %d frames, %d faces, %d students, %d unidentified",
-                    job_id[:8], sampled, faces_seen, len(sightings), agg.unknown_faces)
+        sightings, unknowns = agg.sightings(), agg.unknowns()
+        video_store.write_results(job_id, sampled, faces_seen, agg.unknown_faces, sightings, unknowns)
+        logger.info("[video %s] done: %d frames, %d faces, %d students, %d unidentified faces in %d groups",
+                    job_id[:8], sampled, faces_seen, len(sightings), agg.unknown_faces, len(unknowns))
         return {"ok": True, "sampled_frames": sampled, "faces_seen": faces_seen,
-                "students": len(sightings), "unknown_faces": agg.unknown_faces}
+                "students": len(sightings), "unknown_faces": agg.unknown_faces, "unknowns": len(unknowns)}
     except VideoError as exc:
         video_store.set_status(job_id, "failed", error=str(exc))
         raise

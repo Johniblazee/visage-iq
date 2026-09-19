@@ -142,3 +142,22 @@ CREATE TABLE IF NOT EXISTS video_sightings (
     crop_jpeg        BYTEA NOT NULL,
     PRIMARY KEY (job_id, drive_file_id)
 );
+-- Faces the video job found but kept off the roll, grouped per person in the
+-- worker's memory. Evidence only: no embedding is ever stored here.
+CREATE TABLE IF NOT EXISTS video_unknowns (
+    job_id           UUID NOT NULL REFERENCES video_jobs(id) ON DELETE CASCADE,
+    idx              INTEGER NOT NULL,          -- rank by closest score; the UI numbers faces by it
+    reason           TEXT NOT NULL,             -- small | weak | dark | low | ambiguous
+    near_file_id     TEXT,                      -- closest enrolled photo, if any
+    best_similarity  REAL NOT NULL,
+    det_score        REAL NOT NULL,
+    face_px          INTEGER NOT NULL,
+    best_ts          REAL NOT NULL,
+    first_ts         REAL NOT NULL,
+    last_ts          REAL NOT NULL,
+    frames_seen      INTEGER NOT NULL,
+    timestamps       REAL[] NOT NULL,
+    frame_jpeg       BYTEA NOT NULL,
+    crop_jpeg        BYTEA NOT NULL,
+    PRIMARY KEY (job_id, idx)
+);

@@ -3,6 +3,7 @@
    the operator's own copy. */
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type SyntheticEvent } from "react";
 import {
+  apiBlob,
   apiRequest,
   apiUrl,
   errorMessage,
@@ -12,6 +13,7 @@ import {
   type VideoJob,
   type VideoResults,
   type VideoSighting,
+  type VideoUnknown,
 } from "../api";
 import { Button, Icon, Panel, ScoreBar, Verdict, toast, type VerdictKind } from "../ds";
 import { formatNumber, relativeTime } from "../format";
@@ -29,6 +31,42 @@ const stamp = (s: number) =>
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 const kindOf = (v: VideoSighting["verdict"]): Kind => (v === "MATCH" ? "match" : v === "REVIEW" ? "review" : "no");
 const nameOf = (g: VideoSighting) => g.student?.full_name ?? g.title ?? g.drive_file_id;
+const unkName = (u: VideoUnknown) => "Unidentified face " + String(u.idx + 1).padStart(2, "0");
+const nearName = (u: VideoUnknown) => u.near?.student?.full_name ?? u.near?.title ?? null;
+const unkReason = (u: VideoUnknown) =>
+  u.reason === "small"
+    ? `Small face — about ${u.face_px} px wide`
+    : u.reason === "dark"
+      ? "Low light in this part of the frame"
+      : u.reason === "weak"
+        ? "Face partly turned away or hidden from the camera"
+        : u.reason === "ambiguous"
+          ? "Two enrolled students scored too close to call"
+          : u.frames_seen === 1
+            ? "Seen in a single frame only"
+            : "Not close to any enrolled passport";
+const seenLine = (g: { first_ts: number; last_ts: number; frames_seen: number }) =>
+  `first ${stamp(g.first_ts)} · last ${stamp(g.last_ts)} · seen in ${g.frames_seen} frame${g.frames_seen > 1 ? "s" : ""}`;
+
+// The clipboard only takes PNG images, so the JPEG crop is re-encoded on a canvas first.
+async function copyImage(path: string) {
+  if (!navigator.clipboard || typeof ClipboardItem === "undefined")
+    return toast("warn", "Copying needs a secure (HTTPS) page");
+  try {
+    const bmp = await createImageBitmap(await apiBlob(path));
+    const canvas = document.createElement("canvas");
+    canvas.width = bmp.width;
+    canvas.height = bmp.height;
+    canvas.getContext("2d")?.drawImage(bmp, 0, 0);
+    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!png) throw new Error("couldn't encode the image");
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+    toast("ok", "Copied face crop");
+  } catch (error) {
+    toast("error", "Couldn't copy the crop", errorMessage(error));
+  }
+}
+
 const hide = (e: SyntheticEvent<HTMLImageElement>) => {
   e.currentTarget.style.display = "none";
 };
@@ -73,7 +111,46 @@ function RollCard({ jobId, g, onOpen }: { jobId: string; g: VideoSighting; onOpe
         </div>
         <ScoreBar value={g.confidence_pct} kind={kind} />
         <div className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
-          first {stamp(g.first_ts)} · last {stamp(g.last_ts)} · seen in {g.frames_seen} frame{g.frames_seen > 1 ? "s" : ""}
+          {seenLine(g)}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function UnknownCard({ jobId, g, onOpen }: { jobId: string; g: VideoUnknown; onOpen: (g: VideoUnknown) => void }) {
+  const pct = g.scored ? g.confidence_pct : null;
+  const near = g.scored ? nearName(g) : null;
+  return (
+    <button className="roll" onClick={() => onOpen(g)}>
+      <div className="crop">
+        <img className="crop-img" src={apiUrl(`/video/${jobId}/unknown/${g.idx}/crop`)} alt="" loading="lazy" onError={hide} />
+      </div>
+      <div className="roll-body">
+        <div className="cand-name" style={{ lineHeight: 1.2 }}>
+          {unkName(g)}
+        </div>
+        <div className="cand-meta">{unkReason(g)}</div>
+        <div className="roll-conf">
+          {pct != null ? (
+            <>
+              <span className="score-num" style={{ fontSize: "var(--text-h3)", color: "var(--txt-2)" }}>
+                {pct.toFixed(1)}%
+              </span>
+              <Verdict kind="no" />
+            </>
+          ) : (
+            // A score from an unreliable view is noise: showing "75%" beside "No match" would mislead.
+            <span className="tag" title="The view was too unreliable to compare against enrolled passports">
+              Not scored
+            </span>
+          )}
+          {g.frames_seen === 1 && <span className="tag caution">1 frame</span>}
+        </div>
+        {pct != null && <ScoreBar value={pct} kind="no" />}
+        <div className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
+          {near ? `closest ${near} · ` : ""}
+          {seenLine(g)}
         </div>
       </div>
     </button>
@@ -111,10 +188,22 @@ function TimestampChips({ list }: { list: number[] }) {
   );
 }
 
-function SightingModal({ jobId, g, onClose }: { jobId: string; g: VideoSighting; onClose: () => void }) {
+function SightingModal({
+  jobId,
+  g,
+  onClose,
+  onSearchFace,
+}: {
+  jobId: string;
+  g: VideoSighting | VideoUnknown;
+  onClose: () => void;
+  onSearchFace: (path: string) => void;
+}) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [student, setStudent] = useState<StudentRow | null>(null);
-  const sid = g.student?.student_id ?? null;
+  const unk = "idx" in g ? g : null;
+  const known = "idx" in g ? null : g;
+  const sid = known?.student?.student_id ?? null;
   // The sighting carries a few student fields; pull the full record for the drawer.
   useEffect(() => {
     setStudent(null);
@@ -162,8 +251,18 @@ function SightingModal({ jobId, g, onClose }: { jobId: string; g: VideoSighting;
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const kind = kindOf(g.verdict);
-  const s = g.student;
+  const kind: Kind = known ? kindOf(known.verdict) : "no";
+  const title = unk ? unkName(unk) : nameOf(known!);
+  const evidence = unk
+    ? `/video/${jobId}/unknown/${unk.idx}`
+    : null; // identified sightings are keyed by the enrolled photo instead
+  const frameSrc = evidence ? `${evidence}/frame` : `/video/${jobId}/frame/${encodeURIComponent(known!.drive_file_id)}`;
+  const thumbId = unk ? unk.near?.drive_file_id : known!.drive_file_id;
+  // An unidentified face kept off the roll for being too unreliable has no score at all:
+  // its nearest neighbour is noise, and "75%" beside "No match" would mislead.
+  const scored = g.confidence_pct != null && g.best_similarity != null;
+  const pct = g.confidence_pct ?? 0;
+  const s = known?.student;
   const rows: [string, string | null | undefined][] = [
     ["Student ID", sid],
     ["Email", student?.email],
@@ -175,11 +274,11 @@ function SightingModal({ jobId, g, onClose }: { jobId: string; g: VideoSighting;
   return (
     <>
       <div className="scrim" onClick={onClose}></div>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={nameOf(g)} ref={ref}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref}>
         <header className="card-head">
           <div>
             <div className="eyebrow">Sighting</div>
-            <h3 style={{ marginTop: 2 }}>{nameOf(g)}</h3>
+            <h3 style={{ marginTop: 2 }}>{title}</h3>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             <Icon name="x" size={16} />
@@ -189,7 +288,7 @@ function SightingModal({ jobId, g, onClose }: { jobId: string; g: VideoSighting;
           <div className="modal-top">
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
               <div className="frame-view">
-                <img src={apiUrl(`/video/${jobId}/frame/${encodeURIComponent(g.drive_file_id)}`)} alt="" onError={hide} />
+                <img src={apiUrl(frameSrc)} alt="" onError={hide} />
               </div>
               <div className="muted">Best frame at {stamp(g.best_ts)} · face box drawn by the detector</div>
             </div>
@@ -206,35 +305,57 @@ function SightingModal({ jobId, g, onClose }: { jobId: string; g: VideoSighting;
                     background: "var(--surface-3)",
                   }}
                 >
-                  <img
-                    src={apiUrl(`/image/${encodeURIComponent(g.drive_file_id)}`)}
-                    alt=""
-                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                    onError={hide}
-                  />
+                  {thumbId ? (
+                    <img
+                      src={apiUrl(`/image/${encodeURIComponent(thumbId)}`)}
+                      alt=""
+                      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                      onError={hide}
+                    />
+                  ) : (
+                    <div style={{ height: "100%", display: "grid", placeItems: "center", color: "var(--txt-3)", fontWeight: 700 }}>
+                      ?
+                    </div>
+                  )}
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div className="stat-lab">Confidence</div>
+                  <div className="stat-lab">{!unk ? "Confidence" : scored ? "Closest enrolled face" : "Comparison"}</div>
                   <div className="row" style={{ gap: "var(--s-3)", marginTop: 4 }}>
-                    <span className="score-num" style={{ fontSize: "var(--text-h2)" }}>
-                      {g.confidence_pct.toFixed(1)}%
-                    </span>
-                    <Verdict kind={kind} />
+                    {scored ? (
+                      <>
+                        <span className="score-num" style={{ fontSize: "var(--text-h2)", color: unk ? "var(--txt-2)" : undefined }}>
+                          {pct.toFixed(1)}%
+                        </span>
+                        <Verdict kind={kind} />
+                      </>
+                    ) : (
+                      <span className="score-num" style={{ fontSize: "var(--text-h3)", color: "var(--txt-2)" }}>
+                        Not scored
+                      </span>
+                    )}
                   </div>
                   <div className="muted" style={{ marginTop: 2 }}>
-                    Enrolled passport
+                    {!unk
+                      ? "Enrolled passport"
+                      : scored
+                        ? `${nearName(unk) ?? "No enrolled photo nearby"} · below the review band`
+                        : "The view was too unreliable to compare"}
                   </div>
                 </div>
               </div>
-              <ScoreBar value={g.confidence_pct} kind={kind} />
-              <div className="muted">
-                cosine {g.best_similarity.toFixed(3)} ·{" "}
-                {kind === "match"
-                  ? "above the match threshold"
-                  : g.frames_seen === 1
-                    ? "seen in a single frame — a human decision is required"
-                    : "in the review band — a human decision is required"}
-              </div>
+              {scored && <ScoreBar value={pct} kind={kind} />}
+              {scored && (
+                <div className="muted">
+                  cosine {(g.best_similarity ?? 0).toFixed(3)} ·{" "}
+                  {unk
+                    ? "no enrolled student scored high enough to be proposed"
+                    : kind === "match"
+                      ? "above the match threshold"
+                      : g.frames_seen === 1
+                        ? "seen in a single frame — a human decision is required"
+                        : "in the review band — a human decision is required"}
+                </div>
+              )}
               <div className="row" style={{ gap: "var(--s-2)" }}>
                 <span className="tag">first {stamp(g.first_ts)}</span>
                 <span className="tag">last {stamp(g.last_ts)}</span>
@@ -252,9 +373,31 @@ function SightingModal({ jobId, g, onClose }: { jobId: string; g: VideoSighting;
           </div>
           <div>
             <div className="stat-lab" style={{ marginBottom: "var(--s-3)" }}>
-              Student record
+              {unk ? "No student record" : "Student record"}
             </div>
-            {s ? (
+            {unk ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                <div className="muted" style={{ maxWidth: "60ch" }}>
+                  {unkReason(unk)}.{" "}
+                  {scored
+                    ? "This face was detected but did not reach the review band against any enrolled passport, so it stays out of the attendance roll."
+                    : "This face was detected, but the view was not reliable enough to compare it against enrolled passports, so it is not scored and stays out of the attendance roll."}
+                </div>
+                <div className="row" style={{ gap: "var(--s-3)" }}>
+                  <Button
+                    kind="secondary"
+                    size="sm"
+                    iconLeft={<Icon name="search" size={16} />}
+                    onClick={() => onSearchFace(`${evidence}/crop`)}
+                  >
+                    Search this face
+                  </Button>
+                  <Button kind="text" size="sm" onClick={() => copyImage(`${evidence}/crop`)}>
+                    Copy crop
+                  </Button>
+                </div>
+              </div>
+            ) : s ? (
               <dl className="kv">
                 {rows
                   .filter(([, v]) => v)
@@ -266,7 +409,7 @@ function SightingModal({ jobId, g, onClose }: { jobId: string; g: VideoSighting;
                   ))}
               </dl>
             ) : (
-              <div className="muted">This face matched a photo with no student record attached. File: {g.title}</div>
+              <div className="muted">This face matched a photo with no student record attached. File: {known?.title}</div>
             )}
           </div>
         </div>
@@ -499,14 +642,15 @@ function RecentVideos({ rows, onOpen, onDelete }: { rows: VideoJob[]; onOpen: (j
   );
 }
 
-export default function VideoPage() {
+export default function VideoPage({ onSearchFace }: { onSearchFace: (path: string) => void }) {
   const [jobs, setJobs] = useState<VideoJob[]>([]);
   const [active, setActive] = useState<VideoJob | null>(null);
   const [results, setResults] = useState<VideoResults | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadName, setUploadName] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const [open, setOpen] = useState<VideoSighting | null>(null);
+  const [open, setOpen] = useState<VideoSighting | VideoUnknown | null>(null);
+  const [tab, setTab] = useState<"known" | "unknown" | null>(null); // null = pick for the operator
   const [drag, setDrag] = useState(false);
   const [etaS, setEtaS] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -520,6 +664,7 @@ export default function VideoPage() {
     setEtaS(null);
     setUploadPct(null);
     setOpen(null);
+    setTab(null);
     setResults(null);
     setActive(j);
   }
@@ -642,6 +787,9 @@ export default function VideoPage() {
   const failed = active?.status === "failed";
   const roll = active?.status === "done" && results !== null;
   const sightings = results?.sightings ?? [];
+  const unknowns = results?.unknowns ?? [];
+  // Nothing identified but faces were found: open on what there is to look at.
+  const activeTab = tab ?? (sightings.length === 0 && unknowns.length > 0 ? "unknown" : "known");
   const counts = {
     all: sightings.length,
     match: sightings.filter((g) => g.verdict === "MATCH").length,
@@ -650,6 +798,24 @@ export default function VideoPage() {
   const shown = sightings
     .filter((g) => filter === "all" || kindOf(g.verdict) === filter)
     .sort((a, b) => b.confidence_pct - a.confidence_pct);
+
+  const emptyRoll = (
+    <div className="card">
+      <div className="empty">
+        <Icon name="video" size={28} color="var(--txt-3)" />
+        <div style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-h4)", color: "var(--txt-1)" }}>
+          No enrolled students identified · {formatNumber(results?.job.faces_seen ?? 0)} faces seen
+        </div>
+        <div className="muted" style={{ maxWidth: "52ch" }}>
+          Faces smaller than about 80 px, turned away from the camera, or only weakly detected stay off the roll. A
+          closer or better-lit export usually returns one.
+        </div>
+        <Button kind="primary" size="sm" iconLeft={<Icon name="upload" size={16} />} onClick={() => fileRef.current?.click()}>
+          Upload another clip
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="page">
@@ -740,7 +906,7 @@ export default function VideoPage() {
               <b>{formatNumber(counts.all)}</b> students identified
             </span>
             <span className="pip">
-              <b>{formatNumber(results.job.unknown_faces)}</b> unidentified faces
+              <b>{formatNumber(unknowns.length)}</b> unidentified faces
             </span>
             <span className="pip">
               <b>{formatNumber(results.job.sampled_frames)}</b> frames analysed
@@ -754,46 +920,61 @@ export default function VideoPage() {
               {results.job.filename} · uploaded {relativeTime(results.job.created_at)} · video deleted
             </span>
           </div>
-          {sightings.length === 0 ? (
-            <div className="card">
-              <div className="empty">
-                <Icon name="video" size={28} color="var(--txt-3)" />
-                <div style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-h4)", color: "var(--txt-1)" }}>
-                  No enrolled students identified · {formatNumber(results.job.faces_seen)} faces seen
-                </div>
-                <div className="muted" style={{ maxWidth: "52ch" }}>
-                  Faces smaller than about 80 px, turned away from the camera, or only weakly detected are skipped. A
-                  closer or better-lit export usually returns a roll.
-                </div>
-                <Button kind="primary" size="sm" iconLeft={<Icon name="upload" size={16} />} onClick={() => fileRef.current?.click()}>
-                  Upload another clip
-                </Button>
-              </div>
-            </div>
+          {sightings.length === 0 && unknowns.length === 0 ? (
+            emptyRoll
           ) : (
             <>
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <div className="row">
-                  {(
-                    [
-                      ["all", "All"],
-                      ["match", "Match"],
-                      ["review", "Review"],
-                    ] as [Filter, string][]
-                  ).map(([k, l]) => (
-                    <button key={k} className="chip" aria-pressed={filter === k} onClick={() => setFilter(k)}>
-                      {l}
-                      <span style={{ opacity: 0.7, marginLeft: 2 }}>{counts[k]}</span>
-                    </button>
-                  ))}
-                </div>
-                <span className="muted">Sorted by confidence, highest first</span>
+              <div className="vtabs" role="tablist">
+                <button className="vtab" role="tab" aria-selected={activeTab === "known"} onClick={() => setTab("known")}>
+                  Identified students<span className="vtab-n">{sightings.length}</span>
+                </button>
+                <button className="vtab" role="tab" aria-selected={activeTab === "unknown"} onClick={() => setTab("unknown")}>
+                  Unidentified faces<span className="vtab-n">{unknowns.length}</span>
+                </button>
               </div>
-              <div className="roll-grid">
-                {shown.map((g) => (
-                  <RollCard key={g.drive_file_id} jobId={results.job.id} g={g} onOpen={setOpen} />
-                ))}
-              </div>
+              {activeTab === "unknown" ? (
+                <>
+                  <div className="row" style={{ justifyContent: "space-between" }}>
+                    <span className="muted" style={{ maxWidth: "64ch" }}>
+                      Faces the detector found but could not tie to an enrolled passport. They are not counted in the
+                      attendance roll.{unknowns.length >= 60 ? " Only the first 60 are kept." : ""}
+                    </span>
+                    <span className="muted">Most seen first</span>
+                  </div>
+                  <div className="roll-grid">
+                    {unknowns.map((u) => (
+                      <UnknownCard key={u.idx} jobId={results.job.id} g={u} onOpen={setOpen} />
+                    ))}
+                  </div>
+                </>
+              ) : sightings.length === 0 ? (
+                emptyRoll
+              ) : (
+                <>
+                  <div className="row" style={{ justifyContent: "space-between" }}>
+                    <div className="row">
+                      {(
+                        [
+                          ["all", "All"],
+                          ["match", "Match"],
+                          ["review", "Review"],
+                        ] as [Filter, string][]
+                      ).map(([k, l]) => (
+                        <button key={k} className="chip" aria-pressed={filter === k} onClick={() => setFilter(k)}>
+                          {l}
+                          <span style={{ opacity: 0.7, marginLeft: 2 }}>{counts[k]}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <span className="muted">Sorted by confidence, highest first</span>
+                  </div>
+                  <div className="roll-grid">
+                    {shown.map((g) => (
+                      <RollCard key={g.drive_file_id} jobId={results.job.id} g={g} onOpen={setOpen} />
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
         </>
@@ -801,7 +982,14 @@ export default function VideoPage() {
 
       {!roll && <RecentVideos rows={jobs} onOpen={openJob} onDelete={remove} />}
 
-      {open && results && <SightingModal jobId={results.job.id} g={open} onClose={() => setOpen(null)} />}
+      {open && results && (
+        <SightingModal
+          jobId={results.job.id}
+          g={open}
+          onClose={() => setOpen(null)}
+          onSearchFace={onSearchFace}
+        />
+      )}
     </div>
   );
 }

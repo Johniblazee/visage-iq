@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
 import type { Cfg } from "../App";
 import {
+  apiBlob,
   apiRequest,
   apiUrl,
   errorMessage,
@@ -108,7 +109,17 @@ function CandidateModal({
   );
 }
 
-export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) {
+export default function SearchPage({
+  cfg,
+  model,
+  probePath,
+  onProbeConsumed,
+}: {
+  cfg: Cfg;
+  model: string;
+  probePath: string | null;
+  onProbeConsumed: () => void;
+}) {
   const [openCand, setOpenCand] = useState<{ candidate: Candidate; rank: number } | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadUrl, setUploadUrl] = useState("");
@@ -139,6 +150,27 @@ export default function SearchPage({ cfg, model }: { cfg: Cfg; model: string }) 
     setUploadFile(file);
     setUploadUrl(URL.createObjectURL(file));
   }
+
+  // A probe handed over from another page (an unidentified video face): fetch the
+  // image and run it through the normal upload path; the auto-search effect takes over.
+  useEffect(() => {
+    if (!probePath) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const blob = await apiBlob(probePath);
+        if (cancelled) return;
+        acceptFile(new File([blob], "video-face.jpg", { type: blob.type || "image/jpeg" }));
+      } catch (error) {
+        if (!cancelled) setMatchError(`Couldn't load that face: ${errorMessage(error)}`);
+      } finally {
+        if (!cancelled) onProbeConsumed();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [probePath]);
 
   function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     acceptFile((event.target.files || [])[0]);

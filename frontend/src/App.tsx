@@ -53,6 +53,9 @@ export default function App() {
   const [model, setModel] = useState(() => localStorage.getItem("visageiq-model") || "");
   const dirtyRef = useRef(false); // local dial change not yet written back
   const patchTimer = useRef(0);
+  // Set by "Search this face" on an unidentified video face: an API image path.
+  // SearchPage fetches it once and runs it through the normal upload path.
+  const [probePath, setProbePath] = useState<string | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState("");
   const [worker, setWorker] = useState<WorkerStatus | null>(null);
@@ -315,9 +318,18 @@ export default function App() {
             )}
           </div>
         </header>
-        {page === "search" && <SearchPage cfg={cfg} model={activeModel} />}
+        {page === "search" && (
+          <SearchPage cfg={cfg} model={activeModel} probePath={probePath} onProbeConsumed={() => setProbePath(null)} />
+        )}
         {page === "students" && <StudentsPage onNav={setPage} />}
-        {page === "video" && <VideoPage />}
+        {page === "video" && (
+          <VideoPage
+            onSearchFace={(path) => {
+              setProbePath(path);
+              setPage("search");
+            }}
+          />
+        )}
         {page === "analytics" && <AnalyticsPage activeSync={activeSync} onOpsChanged={refreshOps} />}
         {page === "settings" && (
           <SettingsPage

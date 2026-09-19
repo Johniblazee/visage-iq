@@ -32,19 +32,26 @@ def main() -> int:
     y0, x0 = (720 - face.shape[0]) // 2, (1280 - face.shape[1]) // 2
     canvas[y0:y0 + face.shape[0], x0:x0 + face.shape[1]] = face
 
-    job_id = str(uuid.uuid4())
     os.makedirs(settings.video_upload_dir, exist_ok=True)
-    path = os.path.join(settings.video_upload_dir, f"{job_id}.mp4")
-    out = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), 25.0, (1280, 720))
-    for i in range(75):                                        # 3 s; drift the photo so frames differ
-        out.write(np.roll(canvas, i * 2, axis=1))
-    out.release()
+    jobs: list[tuple[str, str]] = []
 
+    def run(match_t: float, review_t: float) -> tuple[str, str, dict]:
+        """Write the 3 s clip and run one job in-process."""
+        job_id = str(uuid.uuid4())
+        path = os.path.join(settings.video_upload_dir, f"{job_id}.mp4")
+        jobs.append((job_id, path))
+        out = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), 25.0, (1280, 720))
+        for i in range(75):                                    # drift the photo so frames differ
+            out.write(np.roll(canvas, i * 2, axis=1))
+        out.release()
+        video_store.create_job(job_id, "smoke", "smoke.mp4", os.path.getsize(path), path, probe(path),
+                               match_t, review_t)
+        return job_id, path, run_video_job(job_id)
+
+    ok = False
     try:
-        info = probe(path)
-        video_store.create_job(job_id, "smoke", "smoke.mp4", os.path.getsize(path), path, info,
-                               settings.match_threshold, settings.review_threshold)
-        summary = run_video_job(job_id)
+        # Pass 1 — normal thresholds: the student is on the roll.
+        job_id, path, summary = run(settings.match_threshold, settings.review_threshold)
         rows = video_store.results(job_id)
         hit = next((r for r in rows if r["drive_file_id"] == fid), None)
         print("summary:", summary)
@@ -55,12 +62,24 @@ def main() -> int:
         # the count the Recent videos list shows, on both read paths
         ok = ok and video_store.get_job(job_id)["students"] == len(rows) == 1
         ok = ok and any(j["id"] == job_id and j["students"] == 1 for j in video_store.list_jobs())
+
+        # Pass 2 — unreachable thresholds: nobody can be identified, so the same face must come
+        # back as ONE grouped unidentified face whose closest enrolled photo is that student.
+        job2, _, summary2 = run(1.01, 1.01)
+        unk = video_store.unknowns(job2)
+        print("unidentified pass:", summary2, "|",
+              [{k: u[k] for k in ("idx", "reason", "frames_seen", "best_similarity")} for u in unk])
+        ok = ok and video_store.results(job2) == [] and len(unk) == 1
+        ok = ok and unk[0]["frames_seen"] >= summary2["sampled_frames"] - 2
+        ok = ok and unk[0]["near"]["drive_file_id"] == fid
+        ok = ok and all(video_store.unknown_evidence(job2, 0, k)[:2] == b"\xff\xd8" for k in ("frame", "crop"))
     finally:
-        video_store.delete_job(job_id)  # never leave a smoke row or its evidence behind
-        try:
-            os.remove(path)  # only reached if probe/create_job failed before the job's own cleanup
-        except FileNotFoundError:
-            pass
+        for jid, p in jobs:
+            video_store.delete_job(jid)  # never leave a smoke row or its evidence behind
+            try:
+                os.remove(p)  # only still there if the job never reached its own cleanup
+            except FileNotFoundError:
+                pass
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 

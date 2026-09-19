@@ -70,21 +70,67 @@ def test_match_frame_gates(monkeypatch):
     import backend.gallery as gal
 
     faces = [_face([0, 0, 100, 100], 0.9),   # clear winner
-             _face([0, 0, 100, 100], 0.6),   # weak detection: skipped
-             _face([0, 0, 30, 30], 0.9),     # tiny: skipped
-             _face([0, 0, 100, 100], 0.9),   # flat neighbours: unidentified
-             _face([0, 0, 100, 100], 0.9)]   # duplicate photo of the same student is not a rival
+             _face([0, 0, 100, 100], 0.6),   # weak detection
+             _face([0, 0, 30, 30], 0.9),     # tiny
+             _face([0, 0, 100, 100], 0.9),   # flat neighbours
+             _face([0, 0, 100, 100], 0.9),   # duplicate photo of the same student is not a rival
+             _face([0, 0, 100, 100], 0.9)]   # nobody close
     galleries = iter([
         [_cand("a", 0.60, "s1"), _cand("b", 0.50, "s2")],
+        [_cand("w", 0.70, "s7")],
+        [_cand("t", 0.70, "s8")],
         [_cand("c", 0.52, "s3"), _cand("d", 0.50, "s4")],
         [_cand("e", 0.60, "s5"), _cand("e2", 0.59, "s5"), _cand("f", 0.40, "s6")],
+        [_cand("z", 0.30, "s9")],
+        [_cand("w", 0.70, "s7")],
     ])
     monkeypatch.setattr(emb, "embed_frame", lambda frame, model=None: faces)
     monkeypatch.setattr(gal, "search", lambda *a, **k: next(galleries))
 
-    hits = match_frame(np.zeros((200, 200, 3), np.uint8), 80, 0.5, 0.4, "m", min_det_score=0.7, min_margin=0.05)
-    assert [h.drive_file_id for h in hits] == ["a", None, "e"]
-    assert [round(h.similarity, 2) for h in hits] == [0.60, 0.52, 0.60]
+    bright = np.full((200, 200, 3), 200, np.uint8)
+    hits = match_frame(bright, 80, 0.5, 0.4, "m", min_det_score=0.7, min_margin=0.05)
+    # every detected face comes back; the ones kept off the roll say why and who was closest
+    assert [h.drive_file_id for h in hits] == ["a", None, None, None, "e", None]
+    assert [h.reason for h in hits] == ["", "weak", "small", "ambiguous", "", "low"]
+    assert [h.near_file_id for h in hits] == ["a", "w", "t", "c", "e", "z"]
+    assert all((h.embedding is None) == (h.drive_file_id is not None) for h in hits)
+
+    faces[:] = [_face([0, 0, 100, 100], 0.6)]
+    dark = match_frame(np.zeros((200, 200, 3), np.uint8), 80, 0.5, 0.4, "m", min_det_score=0.7)
+    assert [h.reason for h in dark] == ["dark"]    # a weak detection in a dark box blames the light
+
+
+def _unit(*v):
+    e = np.zeros(512, np.float32)
+    e[:len(v)] = v
+    return e / np.linalg.norm(e)
+
+
+def _unk(emb, sim, det=0.8, near="N", reason="low"):
+    return Hit(bbox=[10, 10, 90, 110], det_score=det, drive_file_id=None, similarity=sim,
+               near_file_id=near, reason=reason, embedding=emb)
+
+
+def test_aggregator_groups_unidentified_faces(monkeypatch):
+    import backend.video as video
+
+    frame = np.zeros((200, 200, 3), dtype=np.uint8)
+    frame2 = np.full((200, 200, 3), 200, dtype=np.uint8)
+    agg = Aggregator()
+    agg.add(1.0, _unk(_unit(1, 0), 0.30, det=0.6, reason="weak"), frame)
+    agg.add(1.5, _unk(_unit(0.9, 0.2), 0.36, det=0.9, near="M"), frame2)  # same person, clearer view
+    agg.add(2.0, _unk(_unit(0, 1), 0.41), frame)                          # someone else, higher score
+    first, second = agg.unknowns()
+    assert (first.idx, first.frames_seen, first.timestamps) == (0, 2, [1.0, 1.5])  # most seen first, not top score
+    assert (first.best_similarity, first.near_file_id) == (0.36, "M")
+    assert (first.reason, first.det_score, first.best_ts) == ("low", 0.9, 1.5)     # from the clearest view
+    assert first.frame_jpeg == encode_evidence(frame2, [10, 10, 90, 110])[0]
+    assert (second.idx, second.best_similarity, second.frames_seen) == (1, 0.41, 1)
+    assert agg.unknown_faces == 3 and agg.sightings() == []
+
+    monkeypatch.setattr(video, "MAX_UNKNOWNS", 2)
+    agg.add(3.0, _unk(_unit(0, 0, 1), 0.2), frame)     # a third person, over the cap: counted, not kept
+    assert len(agg.unknowns()) == 2 and agg.unknown_faces == 4
 
 
 def test_sweep_orphans_removes_only_old(tmp_path):

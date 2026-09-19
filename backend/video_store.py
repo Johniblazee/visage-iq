@@ -48,7 +48,8 @@ def set_status(job_id: str, status: str, *, error: str | None = None, detail: st
         conn.commit()
 
 
-def write_results(job_id: str, sampled_frames: int, faces_seen: int, unknown_faces: int, sightings) -> None:
+def write_results(job_id: str, sampled_frames: int, faces_seen: int, unknown_faces: int, sightings,
+                  unknowns=()) -> None:
     jid = uuid.UUID(job_id)
     with pool.connection() as conn, conn.cursor() as cur:
         cur.executemany(
@@ -62,6 +63,14 @@ def write_results(job_id: str, sampled_frames: int, faces_seen: int, unknown_fac
                    frame_jpeg = EXCLUDED.frame_jpeg, crop_jpeg = EXCLUDED.crop_jpeg""",
             [(jid, s.drive_file_id, s.best_similarity, s.best_ts, s.first_ts, s.last_ts,
               s.frames_seen, s.timestamps, s.frame_jpeg, s.crop_jpeg) for s in sightings],
+        )
+        cur.execute("DELETE FROM video_unknowns WHERE job_id = %s", (jid,))  # a re-run replaces them
+        cur.executemany(
+            """INSERT INTO video_unknowns (job_id, idx, reason, near_file_id, best_similarity, det_score, face_px,
+                                           best_ts, first_ts, last_ts, frames_seen, timestamps, frame_jpeg, crop_jpeg)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            [(jid, u.idx, u.reason, u.near_file_id, u.best_similarity, u.det_score, u.face_px, u.best_ts,
+              u.first_ts, u.last_ts, u.frames_seen, u.timestamps, u.frame_jpeg, u.crop_jpeg) for u in unknowns],
         )
         cur.execute(
             """UPDATE video_jobs SET status = 'done', sampled_frames = %s, faces_seen = %s,
@@ -107,6 +116,48 @@ def results(job_id: str) -> list[dict[str, Any]]:
          "student": {"full_name": r[8], "student_id": r[9], "location": r[10], "programme": r[11]} if r[8] else None}
         for r in rows
     ]
+
+
+SCORED_REASON = "low"   # the only unidentified faces whose similarity means anything
+
+
+def unknowns(job_id: str) -> list[dict[str, Any]]:
+    """Unidentified faces, most-seen first. A face that was clear enough to score
+    carries its closest enrolled photo (`near`) and similarity; one that was kept
+    off the roll for being too unreliable (small, weak, dark, ambiguous) carries
+    neither — its nearest neighbour is noise, and naming a student beside a
+    stranger's crop is how false identifications happen."""
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT u.idx, u.reason, u.face_px, u.det_score, u.best_similarity, u.best_ts, u.first_ts,
+                      u.last_ts, u.frames_seen, u.timestamps, u.near_file_id, p.drive_file_name,
+                      s.full_name, s.student_id, s.location, s.programme
+               FROM video_unknowns u
+               LEFT JOIN persons p ON p.drive_file_id = u.near_file_id
+               LEFT JOIN LATERAL (SELECT full_name, student_id, location, programme FROM students st
+                                  WHERE st.photo_drive_file_id = u.near_file_id ORDER BY st.id LIMIT 1) s ON TRUE
+               WHERE u.job_id = %s ORDER BY u.idx""",
+            (uuid.UUID(job_id),),
+        )
+        rows = cur.fetchall()
+    return [
+        {"idx": r[0], "reason": r[1], "scored": r[1] == SCORED_REASON, "face_px": r[2], "det_score": float(r[3]),
+         "best_similarity": float(r[4]) if r[1] == SCORED_REASON else None,
+         "best_ts": float(r[5]), "first_ts": float(r[6]), "last_ts": float(r[7]), "frames_seen": r[8],
+         "timestamps": [float(t) for t in r[9]],
+         "near": {"drive_file_id": r[10], "title": r[11],
+                  "student": {"full_name": r[12], "student_id": r[13], "location": r[14], "programme": r[15]}
+                  if r[12] else None} if r[10] and r[1] == SCORED_REASON else None}
+        for r in rows
+    ]
+
+
+def unknown_evidence(job_id: str, idx: int, kind: str) -> bytes | None:
+    col = {"frame": "frame_jpeg", "crop": "crop_jpeg"}[kind]
+    with pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT {col} FROM video_unknowns WHERE job_id = %s AND idx = %s", (uuid.UUID(job_id), idx))
+        r = cur.fetchone()
+    return bytes(r[0]) if r else None
 
 
 def evidence(job_id: str, drive_file_id: str, kind: str) -> bytes | None:

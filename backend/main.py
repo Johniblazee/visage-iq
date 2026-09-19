@@ -69,6 +69,7 @@ from backend.schemas import (
     VideoJob,
     VideoResults,
     VideoSighting,
+    VideoUnknown,
     WorkerStatus,
 )
 from backend.video import VideoError, probe
@@ -629,8 +630,20 @@ def video_results(request: Request, job_id: uuid.UUID) -> VideoResults:
             verdict = "REVIEW"
         sightings.append(VideoSighting(**r, confidence_pct=scoring.confidence_pct(r["best_similarity"]),
                                        verdict=verdict))
-    audit.record(actor_of(request), "video_results", target=str(job_id), details={"students": len(sightings)})
-    return VideoResults(job=job, sightings=sightings)
+    unknowns = [VideoUnknown(**u, confidence_pct=scoring.confidence_pct(u["best_similarity"]) if u["scored"] else None)
+                for u in video_store.unknowns(str(job_id))]
+    audit.record(actor_of(request), "video_results", target=str(job_id),
+                 details={"students": len(sightings), "unknowns": len(unknowns)})
+    return VideoResults(job=job, sightings=sightings, unknowns=unknowns)
+
+
+@app.get("/video/{job_id}/unknown/{idx}/{kind}")
+def video_unknown_evidence(request: Request, job_id: uuid.UUID, idx: int, kind: Literal["frame", "crop"]) -> Response:
+    data = video_store.unknown_evidence(str(job_id), idx, kind)
+    if data is None:
+        raise HTTPException(status_code=404, detail="No such unidentified face in this job")
+    audit.record(actor_of(request), "image_view", target=f"unknown-{idx}", details={"video_job": str(job_id), "kind": kind})
+    return Response(content=data, media_type="image/jpeg")
 
 
 @app.get("/video/{job_id}/{kind}/{drive_file_id}")

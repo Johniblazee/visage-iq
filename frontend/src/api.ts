@@ -34,6 +34,14 @@ export async function apiRequest<T = unknown>(path: string, options: RequestInit
   return body as T;
 }
 
+// Binary GET with the same auth as apiRequest (evidence JPEGs for the clipboard / Face search).
+export async function apiBlob(path: string): Promise<Blob> {
+  const token = getAuthToken ? await getAuthToken() : null;
+  const response = await fetch(apiUrl(path), token ? { headers: { Authorization: `Bearer ${token}` } } : {});
+  if (!response.ok) throw new Error(`image fetch failed (${response.status})`);
+  return response.blob();
+}
+
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -220,9 +228,27 @@ export interface VideoSighting {
   timestamps: number[];
 }
 
+// A face the job found but kept off the roll, grouped per person across frames.
+export interface VideoUnknown {
+  idx: number;
+  reason: "small" | "weak" | "dark" | "low" | "ambiguous";
+  scored: boolean; // false = too unreliable a view to compare: the API gives no score and no nearest photo
+  face_px: number;
+  det_score: number;
+  best_similarity: number | null;
+  confidence_pct: number | null;
+  near?: { drive_file_id: string; title?: string | null; student?: CandidateStudent | null } | null;
+  best_ts: number;
+  first_ts: number;
+  last_ts: number;
+  frames_seen: number;
+  timestamps: number[];
+}
+
 export interface VideoResults {
   job: VideoJob;
   sightings: VideoSighting[];
+  unknowns: VideoUnknown[];
 }
 
 // Multipart upload with progress events — fetch() cannot report upload progress.

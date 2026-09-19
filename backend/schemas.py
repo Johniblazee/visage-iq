@@ -224,6 +224,29 @@ class VideoSighting(BaseModel):
     timestamps: list[float]
 
 
+class VideoNear(BaseModel):
+    drive_file_id: str
+    title: str | None = None
+    student: StudentRef | None = None
+
+
+class VideoUnknown(BaseModel):
+    idx: int
+    reason: str                 # small | weak | dark | low | ambiguous
+    scored: bool                # false = too unreliable a view to compare; no score or nearest photo is given
+    face_px: int
+    det_score: float
+    best_similarity: float | None = None
+    confidence_pct: float | None = None
+    near: VideoNear | None = None
+    best_ts: float
+    first_ts: float
+    last_ts: float
+    frames_seen: int
+    timestamps: list[float]
+
+
 class VideoResults(BaseModel):
     job: VideoJob
     sightings: list[VideoSighting]
+    unknowns: list[VideoUnknown] = []

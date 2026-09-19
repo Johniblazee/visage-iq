@@ -244,11 +244,14 @@ the original footage.
 How it works: the api streams the upload to a shared volume, probes it, and
 queues a job on the `video` RQ queue; `worker-video` samples frames in memory
 (`VIDEO_SAMPLE_FPS`, default 2), runs the same detect + embed as face search on
-each, does a top-1 gallery search per face, and aggregates per enrolled photo:
-best score, every matched timestamp, the best full frame (face box drawn) and
-a face crop. Results land in `video_jobs` / `video_sightings`.
+each, searches the gallery per face, and aggregates per enrolled photo: best
+score, every matched timestamp, the best full frame (face box drawn) and a
+face crop. Faces that stay off the roll are grouped per person in memory (by
+embedding similarity) and kept with the same evidence, the reason, and their
+closest enrolled photo. Results land in `video_jobs` / `video_sightings` /
+`video_unknowns`.
 
-In the app: **Video match** in the sidebar — drop a clip, watch the job card (checking → matching → saving), then the roll: one card per identified student (video crop beside the enrolled passport, confidence, verdict, first/last seen, frames seen); click a card for the best frame, every timestamp as a copyable chip, and the student record. Recent videos are listed below the drop zone and can be deleted.
+In the app: **Video match** in the sidebar — drop a clip, watch the job card (checking → matching → saving), then the roll: one card per identified student (video crop beside the enrolled passport, confidence, verdict, first/last seen, frames seen); click a card for the best frame, every timestamp as a copyable chip, and the student record. A second tab, **Unidentified faces**, lists the faces the detector found but could not tie to a passport, most-seen first — crop and reason (small, weak detection, low light, too close to call, not close to anyone). Only a face that was clear enough to compare shows its closest enrolled photo and score; one kept off the roll for being too unreliable shows **Not scored** and names nobody, because its nearest neighbour is noise. Both come with **Search this face** (runs the crop through Face search) and **Copy crop**. Recent videos are listed below the drop zone and can be deleted.
 
 Hard rules — these are design invariants, not defaults:
 
@@ -257,16 +260,18 @@ Hard rules — these are design invariants, not defaults:
 - **Frames are never persisted.** No `frames/` directory, no per-frame files.
 - **The uploaded video is deleted when the job ends**, success or failure
   (and a sweep removes anything a killed worker left behind after a day).
-- Evidence kept per matched student: timestamps, one frame JPEG (≤ 1280 px),
-  one crop JPEG (256 px) — ~150 KB per student per video. Unidentified faces
-  are only counted.
+- Evidence kept per matched student, and per unidentified face (at most 60 per
+  video; beyond that they are only counted): timestamps, one frame JPEG
+  (≤ 1280 px), one crop JPEG (256 px) — ~150 KB each. The embeddings used to
+  group unidentified faces live in the worker's memory and are never stored.
+  Deleting a video's results deletes all of it.
 - Every upload, result view and evidence view is audited.
 
 False-positive gates (CCTV is far from passport conditions, and a noisy
 embedding always finds *some* neighbour in a 30k-photo gallery): faces under
-`VIDEO_MIN_FACE_PX` or below `VIDEO_MIN_DET_SCORE` are skipped; a face whose
-top-1 does not beat the next student by `VIDEO_MIN_MARGIN` counts as
-unidentified; and a student seen in only one sampled frame is capped at
+`VIDEO_MIN_FACE_PX` or below `VIDEO_MIN_DET_SCORE` stay off the roll; so does a
+face whose top-1 does not beat the next student by `VIDEO_MIN_MARGIN` (all of
+these are listed under Unidentified faces with the reason); and a student seen in only one sampled frame is capped at
 **REVIEW**, never **MATCH**. Overhead cameras that see the tops of heads will
 still not match reliably — the model wants roughly frontal faces.
 
@@ -285,7 +290,9 @@ docker compose exec -T worker-video python -m scripts.video_smoke # end-to-end c
 
 The smoke test builds a 3 s clip from a random enrolled photo, runs the job
 in-process, asserts that student is on the roll and that the upload is gone,
-then deletes its own job. On the GPU a 5-minute clip (600 sampled frames)
+then runs it again with unreachable thresholds and asserts the same face comes
+back as one grouped unidentified face whose closest photo is that student. It
+deletes its own jobs. On the GPU a 5-minute clip (600 sampled frames)
 takes roughly 20–40 s.
 
 Note: *Pause worker* (`POST /worker/pause`) suspends every RQ worker, so a
@@ -454,8 +461,9 @@ requirements.txt
 | `POST` | `/video` | Upload a clip (multipart `file`, ≤ `VIDEO_MAX_UPLOAD_MB`, ≤ `VIDEO_MAX_DURATION_S`); probed by content, queued on the `video` RQ queue → `{job_id}`. Rate-limited per IP by `VIDEO_RATE_LIMIT`. |
 | `GET` | `/video` | Recent video jobs (last 50), each with its `students` count |
 | `GET` | `/video/{job_id}` | Job status + live `progress` (`phase`/`current`/`total`/`faces_seen`); a job whose worker died is reconciled to `failed` on read |
-| `GET` | `/video/{job_id}/results` | The roll: per matched student `confidence_pct`, `verdict`, all `timestamps`, `first_ts`/`last_ts`/`best_ts`, `frames_seen` |
+| `GET` | `/video/{job_id}/results` | The roll: per matched student `confidence_pct`, `verdict`, all `timestamps`, `first_ts`/`last_ts`/`best_ts`, `frames_seen`; plus `unknowns` — unidentified faces with `reason`, `scored`, `face_px` and the same timestamps; `near`, `best_similarity` and `confidence_pct` are given only when `scored` |
 | `GET` | `/video/{job_id}/frame/{file_id}` · `/crop/{file_id}` | Evidence JPEGs (best full frame with the face box; face crop) |
+| `GET` | `/video/{job_id}/unknown/{idx}/frame` · `/crop` | The same evidence for an unidentified face |
 | `DELETE` | `/video/{job_id}` | Remove a job and its evidence |
 | `GET` | `/analytics/summary` | Outcome counts, extension distribution, outcome×ext matrix |
 | `GET` | `/analytics/files` | Paginated `file_status` rows with `outcome` / `ext` / `q` filters |

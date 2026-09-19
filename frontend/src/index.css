@@ -1397,6 +1397,60 @@ td:first-child {
 }
 
 /* ── video match (design: Video match.html) ──────────────── */
+.vtabs {
+  display: flex;
+  gap: var(--s-5);
+  border-bottom: 1px solid var(--line);
+}
+.vtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  font: inherit;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-h4);
+  color: var(--txt-3);
+  cursor: pointer;
+}
+.vtab:hover {
+  color: var(--txt-2);
+}
+.vtab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.vtab[aria-selected="true"] {
+  color: var(--txt-1);
+  border-bottom-color: var(--accent-primary);
+}
+.vtab-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--txt-2);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+}
+/* same pressed treatment as .chip[aria-pressed] */
+.vtab[aria-selected="true"] .vtab-n {
+  background: var(--nav-bg);
+  color: #fff;
+}
+[data-theme="dark"] .vtab[aria-selected="true"] .vtab-n {
+  background: rgba(255, 255, 255, 0.14);
+}
 .roll-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
